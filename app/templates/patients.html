@@ -1,0 +1,799 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="patients-container">
+    <div class="patients-header">
+        <h1 class="page-title">Patient Management</h1>
+        <button class="btn-primary" id="addPatientBtn">
+            + Add Patient
+        </button>
+    </div>
+
+    <div class="patients-controls">
+        <div class="search-bar">
+            <input type="text" id="patientSearch" placeholder="Search patients by name or ID..." class="search-input">
+        </div>
+    </div>
+
+    <div class="patients-table-wrapper">
+        <table class="patients-table">
+            <thead>
+                <tr>
+                    <th>Patient</th>
+                    <th>ID</th>
+                    <th>DOB</th>
+                    <th>Gender</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Actions</th>
+                    <th style="width:40px;">Expand</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if patients %}
+                    {% for patient in patients %}
+                    <tr class="patient-row" data-patient-id="{{ patient.patient_id }}">
+                        <td><strong>{{ patient.first_name }} {{ patient.last_name }}</strong></td>
+                        <td><span class="patient-id-text">{{ patient.patient_id }}</span></td>
+                        <td>{{ patient.date_of_birth or '-' }}</td>
+                        <td>{{ patient.gender or '-' }}</td>
+                        <td>{{ patient.email or '-' }}</td>
+                        <td>{{ patient.phone or '-' }}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <a href="{{ url_for('main.history', patient_id=patient.patient_id) }}" class="btn-small">History</a>
+                                <a href="{{ url_for('main.new_screening') }}?patient_id={{ patient.patient_id }}" class="btn-small btn-primary-small">New Screening</a>
+                                <button class="btn-small btn-edit" data-patient-id="{{ patient.patient_id }}">Edit</button>
+                                <button class="btn-small btn-delete-patient"
+                                        data-patient-id="{{ patient.patient_id }}"
+                                        data-patient-name="{{ patient.first_name }} {{ patient.last_name }}">Delete</button>
+                            </div>
+                        </td>
+                        <td>
+                            <button class="btn-expand" data-patient-id="{{ patient.patient_id }}">+</button>
+                        </td>
+                    </tr>
+                    <tr class="patient-detail-row" id="detail-{{ patient.patient_id }}" style="display:none;">
+                        <td colspan="8">
+                            <div class="patient-detail-expanded">
+                                <div class="detail-grid">
+                                    <div class="detail-item">
+                                        <span class="detail-label">Full Name</span>
+                                        <span class="detail-value">{{ patient.first_name }} {{ patient.last_name }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Patient ID</span>
+                                        <span class="detail-value">{{ patient.patient_id }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Date of Birth</span>
+                                        <span class="detail-value">{{ patient.date_of_birth or 'Not set' }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Age</span>
+                                        <span class="detail-value">{{ patient.age or 'Unknown' }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Gender</span>
+                                        <span class="detail-value">{{ patient.gender or 'Not set' }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Email</span>
+                                        <span class="detail-value">{{ patient.email or 'Not set' }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Phone</span>
+                                        <span class="detail-value">{{ patient.phone or 'Not set' }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Address</span>
+                                        <span class="detail-value">{{ patient.address or 'Not set' }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Medical History</span>
+                                        <span class="detail-value">{{ patient.medical_history or 'None recorded' }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Allergies</span>
+                                        <span class="detail-value">{{ patient.allergies or 'None reported' }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Emergency Contact</span>
+                                        <span class="detail-value">{{ patient.emergency_contact or 'Not set' }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Consent</span>
+                                        <span class="detail-value">{{ 'Yes' if patient.consent_status else 'No' }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Created</span>
+                                        <span class="detail-value">{{ patient.created_at[:10] if patient.created_at else 'Unknown' }}</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Last Updated</span>
+                                        <span class="detail-value">{{ patient.updated_at[:10] if patient.updated_at else 'Unknown' }}</span>
+                                    </div>
+                                </div>
+                                <div class="detail-actions">
+                                    <a href="{{ url_for('main.history', patient_id=patient.patient_id) }}" class="btn-secondary btn-sm">View History</a>
+                                    <a href="{{ url_for('main.new_screening') }}?patient_id={{ patient.patient_id }}" class="btn-primary btn-sm">New Screening</a>
+                                    <button class="btn-secondary btn-sm btn-edit-detail" data-patient-id="{{ patient.patient_id }}">Edit Patient</button>
+                                    <button class="btn-sm btn-delete-patient"
+                                            data-patient-id="{{ patient.patient_id }}"
+                                            data-patient-name="{{ patient.first_name }} {{ patient.last_name }}">Delete Patient</button>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="8" class="empty-state">
+                            <p>No patients registered yet.</p>
+                            <button class="btn-primary" id="addPatientBtnEmpty">Add First Patient</button>
+                        </td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- FULL PATIENT FORM MODAL -->
+<div class="modal-overlay" id="patientModal" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="modalTitle">Add Patient</h2>
+            <button class="modal-close" id="modalClose">×</button>
+        </div>
+        <div class="modal-body">
+            <form id="patientForm">
+                <input type="hidden" id="editPatientId" value="">
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label required">First Name</label>
+                        <input type="text" id="firstName" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required">Last Name</label>
+                        <input type="text" id="lastName" class="form-input" required>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Date of Birth</label>
+                        <input type="date" id="dateOfBirth" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Gender</label>
+                        <select id="gender" class="form-input">
+                            <option value="">Select...</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                            <option value="Non-binary">Non-binary</option>
+                            <option value="Prefer not to say">Prefer not to say</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Email Address</label>
+                        <input type="email" id="email" class="form-input" placeholder="patient@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Phone Number</label>
+                        <input type="tel" id="phone" class="form-input" placeholder="+1 234 567 8900">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Address</label>
+                    <input type="text" id="address" class="form-input" placeholder="Street, City, State, ZIP">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Medical History</label>
+                    <textarea id="medicalHistory" class="form-input" rows="3" placeholder="Relevant medical history, conditions, surgeries, medications..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Allergies</label>
+                    <input type="text" id="allergies" class="form-input" placeholder="Known allergies to medications, foods, etc.">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Emergency Contact</label>
+                    <input type="text" id="emergencyContact" class="form-input" placeholder="Name and phone number">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Notes</label>
+                    <textarea id="notes" class="form-input" rows="2" placeholder="Additional notes..."></textarea>
+                </div>
+
+                <div class="form-group checkbox">
+                    <input type="checkbox" id="consentStatus">
+                    <label for="consentStatus">Consent obtained for data collection and analysis</label>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-secondary" id="modalCancel">Cancel</button>
+            <button class="btn-primary" id="modalSave">Save Patient</button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* ----- Patients Table ----- */
+.patients-table-wrapper {
+    background: white;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+}
+
+.patients-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.patients-table thead {
+    background: #f8fafc;
+}
+
+.patients-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+    border-bottom: 2px solid #e2e8f0;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.patients-table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+}
+
+.patients-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.patient-id-text {
+    font-family: monospace;
+    font-size: 0.8rem;
+    color: #64748b;
+}
+
+/* ----- Action Buttons ----- */
+.action-buttons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.btn-primary-small {
+    background: #2563eb;
+    color: white;
+    border: none;
+}
+
+.btn-primary-small:hover {
+    background: #1d4ed8;
+    color: white;
+}
+
+.btn-expand {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid #e2e8f0;
+    background: white;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #64748b;
+    transition: all 0.2s;
+}
+
+.btn-expand:hover {
+    background: #dbeafe;
+    border-color: #2563eb;
+}
+
+.btn-expand.expanded {
+    background: #2563eb;
+    color: white;
+    border-color: #2563eb;
+}
+
+/* ----- Expanded Detail Row ----- */
+.patient-detail-row td {
+    padding: 0;
+    border-bottom: none;
+}
+
+.patient-detail-expanded {
+    padding: 20px 24px;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px 24px;
+    margin-bottom: 16px;
+}
+
+.detail-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.detail-item .detail-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: #94a3b8;
+}
+
+.detail-item .detail-value {
+    font-size: 0.9rem;
+    color: #1e293b;
+    font-weight: 500;
+}
+
+.detail-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding-top: 12px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.btn-sm {
+    padding: 4px 12px;
+    font-size: 0.75rem;
+    border-radius: 6px;
+}
+
+/* ----- Modal ----- */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    padding: 20px;
+}
+
+.modal {
+    background: white;
+    border-radius: 16px;
+    max-width: 640px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e2e8f0;
+    position: sticky;
+    top: 0;
+    background: white;
+    border-radius: 16px 16px 0 0;
+    z-index: 1;
+}
+
+.modal-header h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #94a3b8;
+    padding: 4px;
+}
+
+.modal-close:hover {
+    color: #1e293b;
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    position: sticky;
+    bottom: 0;
+    background: white;
+    border-radius: 0 0 16px 16px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #475569;
+    margin-bottom: 4px;
+}
+
+.form-group label.required::after {
+    content: ' *';
+    color: #dc2626;
+}
+
+.form-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    transition: border-color 0.2s;
+    background: white;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #2563eb;
+}
+
+.form-input::placeholder {
+    color: #94a3b8;
+}
+
+.form-group.checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.form-group.checkbox input {
+    width: 18px;
+    height: 18px;
+    accent-color: #2563eb;
+}
+
+.form-group.checkbox label {
+    margin-bottom: 0;
+    font-weight: 400;
+}
+
+/* ----- Empty State ----- */
+.empty-state {
+    text-align: center;
+    padding: 48px 20px;
+    color: #4a5b6a;
+}
+
+.empty-state p {
+    margin-bottom: 16px;
+}
+.btn-delete-patient {
+    background: #dc2626;
+    color: #fff;
+    border: 1px solid #dc2626;
+}
+.btn-delete-patient:hover {
+    background: #b91c1c;
+}
+
+/* ----- Responsive ----- */
+@media (max-width: 768px) {
+    .patients-table-wrapper {
+        overflow-x: auto;
+    }
+    .patients-table {
+        min-width: 700px;
+    }
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+    .modal {
+        max-width: 95%;
+        margin: 10px;
+    }
+    .detail-grid {
+        grid-template-columns: 1fr;
+    }
+    .action-buttons .btn-small {
+        font-size: 0.7rem;
+        padding: 2px 8px;
+    }
+}
+
+@media (max-width: 480px) {
+    .patients-table {
+        min-width: 600px;
+        font-size: 0.75rem;
+    }
+    .patients-table th,
+    .patients-table td {
+        padding: 6px 10px;
+    }
+    .modal-body {
+        padding: 16px;
+    }
+}
+
+/* ----- Print ----- */
+@media print {
+    .btn-expand,
+    .action-buttons .btn-edit {
+        display: none !important;
+    }
+    .patient-detail-row {
+        display: table-row !important;
+    }
+    .patient-detail-expanded {
+        background: #f5f5f5;
+    }
+}
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const modal = document.getElementById('patientModal');
+
+    // ===== EXPAND/COLLAPSE =====
+    document.querySelectorAll('.btn-expand').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var patientId = this.dataset.patientId;
+            var detailRow = document.getElementById('detail-' + patientId);
+            
+            if (detailRow.style.display === 'none') {
+                detailRow.style.display = 'table-row';
+                this.textContent = '−';
+                this.classList.add('expanded');
+            } else {
+                detailRow.style.display = 'none';
+                this.textContent = '+';
+                this.classList.remove('expanded');
+            }
+        });
+    });
+
+    // ===== OPEN MODAL =====
+    function openModal(patientData) {
+        var isEditing = !!patientData;
+        document.getElementById('modalTitle').textContent = isEditing ? 'Edit Patient' : 'Add Patient';
+        modal.style.display = 'flex';
+
+        if (patientData) {
+            document.getElementById('editPatientId').value = patientData.patient_id;
+            document.getElementById('firstName').value = patientData.first_name || '';
+            document.getElementById('lastName').value = patientData.last_name || '';
+            document.getElementById('dateOfBirth').value = patientData.date_of_birth || '';
+            document.getElementById('gender').value = patientData.gender || '';
+            document.getElementById('email').value = patientData.email || '';
+            document.getElementById('phone').value = patientData.phone || '';
+            document.getElementById('address').value = patientData.address || '';
+            document.getElementById('medicalHistory').value = patientData.medical_history || '';
+            document.getElementById('allergies').value = patientData.allergies || '';
+            document.getElementById('emergencyContact').value = patientData.emergency_contact || '';
+            document.getElementById('notes').value = patientData.notes || '';
+            document.getElementById('consentStatus').checked = patientData.consent_status || false;
+        } else {
+            document.getElementById('editPatientId').value = '';
+            document.getElementById('patientForm').reset();
+        }
+    }
+
+    function closeModal() {
+        modal.style.display = 'none';
+    }
+
+    // ===== ADD PATIENT BUTTONS =====
+    document.getElementById('addPatientBtn').addEventListener('click', function() {
+        openModal(null);
+    });
+    
+    var emptyBtn = document.getElementById('addPatientBtnEmpty');
+    if (emptyBtn) {
+        emptyBtn.addEventListener('click', function() {
+            openModal(null);
+        });
+    }
+
+    // ===== MODAL CLOSE =====
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+    document.getElementById('modalCancel').addEventListener('click', closeModal);
+    
+    modal.addEventListener('click', function(e) {
+        if (e.target === this) closeModal();
+    });
+
+    // ===== EDIT BUTTONS (Main table) =====
+    document.querySelectorAll('.btn-edit').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var patientId = this.dataset.patientId;
+            
+            // Fetch patient data from server
+            fetch('/api/patients/search?q=' + patientId)
+                .then(function(r) { return r.json(); })
+                .then(function(patients) {
+                    var patient = patients.find(function(p) { return p.patient_id === patientId; });
+                    if (patient) {
+                        openModal(patient);
+                    } else {
+                        alert('Patient not found. Please try again.');
+                    }
+                })
+                .catch(function(err) {
+                    alert('Error loading patient data: ' + err.message);
+                });
+        });
+    });
+
+    // ===== EDIT BUTTONS (Detail row) =====
+    document.querySelectorAll('.btn-edit-detail').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var patientId = this.dataset.patientId;
+            
+            fetch('/api/patients/search?q=' + patientId)
+                .then(function(r) { return r.json(); })
+                .then(function(patients) {
+                    var patient = patients.find(function(p) { return p.patient_id === patientId; });
+                    if (patient) {
+                        openModal(patient);
+                    } else {
+                        alert('Patient not found. Please try again.');
+                    }
+                })
+                .catch(function(err) {
+                    alert('Error loading patient data: ' + err.message);
+                });
+        });
+    });
+
+    document.querySelectorAll('.btn-delete-patient').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var patientId = this.dataset.patientId;
+            var patientName = this.dataset.patientName;
+            var confirmed = window.confirm(
+                'Delete ' + patientName + ' and all of their screening history? This cannot be undone.'
+            );
+            if (!confirmed) return;
+
+            this.disabled = true;
+            fetch('/api/patients/' + encodeURIComponent(patientId), {method: 'DELETE'})
+                .then(function(response) {
+                    return response.json().catch(function() {
+                        throw new Error('Server error while deleting patient');
+                    }).then(function(data) {
+                        if (!response.ok || !data.success) {
+                            throw new Error(data.error || 'Patient deletion failed');
+                        }
+                        if (data.cleanup_warnings && data.cleanup_warnings.length) {
+                            alert('Patient and screening history were deleted, but some stored images could not be removed.');
+                        }
+                        location.reload();
+                    });
+                })
+                .catch(function(error) {
+                    alert('Could not delete patient: ' + error.message);
+                    btn.disabled = false;
+                });
+        });
+    });
+
+    // ===== SAVE PATIENT =====
+    document.getElementById('modalSave').addEventListener('click', function() {
+        var data = {
+            first_name: document.getElementById('firstName').value.trim(),
+            last_name: document.getElementById('lastName').value.trim(),
+            date_of_birth: document.getElementById('dateOfBirth').value,
+            gender: document.getElementById('gender').value,
+            email: document.getElementById('email').value.trim(),
+            phone: document.getElementById('phone').value.trim(),
+            address: document.getElementById('address').value.trim(),
+            medical_history: document.getElementById('medicalHistory').value.trim(),
+            allergies: document.getElementById('allergies').value.trim(),
+            emergency_contact: document.getElementById('emergencyContact').value.trim(),
+            notes: document.getElementById('notes').value.trim(),
+            consent_status: document.getElementById('consentStatus').checked
+        };
+
+        if (!data.first_name || !data.last_name) {
+            alert('First name and last name are required.');
+            return;
+        }
+
+        var patientId = document.getElementById('editPatientId').value;
+        var url = patientId ? '/api/patients/' + patientId : '/api/patients/create';
+        var method = patientId ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (result.success) {
+                closeModal();
+                alert(patientId ? 'Patient updated successfully!' : 'Patient created successfully!');
+                location.reload();
+            } else {
+                throw new Error(result.error || 'Operation failed');
+            }
+        })
+        .catch(function(err) {
+            alert('Error: ' + err.message);
+        });
+    });
+
+    // ===== SEARCH =====
+    document.getElementById('patientSearch').addEventListener('input', function() {
+        var query = this.value.toLowerCase().trim();
+        document.querySelectorAll('.patient-row').forEach(function(row) {
+            var name = row.querySelector('td:first-child').textContent.toLowerCase();
+            var id = row.dataset.patientId.toLowerCase();
+            var matches = name.includes(query) || id.includes(query);
+            row.style.display = matches ? '' : 'none';
+            
+            var detailRow = document.getElementById('detail-' + row.dataset.patientId);
+            if (detailRow && !matches) {
+                detailRow.style.display = 'none';
+                var expandBtn = row.querySelector('.btn-expand');
+                if (expandBtn) {
+                    expandBtn.textContent = '+';
+                    expandBtn.classList.remove('expanded');
+                }
+            }
+        });
+    });
+
+    // ===== KEYBOARD SHORTCUT =====
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && modal.style.display === 'flex') {
+            closeModal();
+        }
+    });
+});
+</script>
+{% endblock %}

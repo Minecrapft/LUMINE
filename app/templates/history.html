@@ -1,0 +1,693 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="history-container">
+    <div class="history-header">
+        <h1 class="page-title">Patient History</h1>
+        <div class="patient-info">
+            <span class="patient-name">{{ patient.first_name }} {{ patient.last_name }}</span>
+            <span class="patient-detail">ID: {{ patient.patient_id }}</span>
+            <span class="patient-detail">Age: {{ patient.age or 'Unknown' }}</span>
+        </div>
+    </div>
+
+    <div class="history-tabs">
+        <button class="tab-btn active" data-tab="timeline">Timeline</button>
+        <button class="tab-btn" data-tab="trends">Trends</button>
+        <button class="tab-btn" data-tab="summary">Summary</button>
+    </div>
+
+    <!-- Timeline View -->
+    <div class="tab-content active" id="tab-timeline">
+        <div class="timeline">
+            {% if assessments %}
+                {% for assessment in assessments %}
+                <div class="timeline-item status-{{ assessment.overall_status }}">
+                    <div class="timeline-marker">
+                        <span class="marker-dot"></span>
+                    </div>
+                    <div class="timeline-content">
+                        <div class="timeline-header">
+                            <span class="timeline-date">{{ assessment.date[:10] }}</span>
+                            <span class="status-badge status-{{ assessment.overall_status }}">
+                                {{ assessment.overall_status|title }}
+                            </span>
+                            <button type="button" class="btn-delete-assessment"
+                                    data-patient-id="{{ patient.patient_id }}"
+                                    data-assessment-id="{{ assessment.assessment_id }}"
+                                    data-assessment-date="{{ assessment.date[:10] }}">
+                                Delete Screening
+                            </button>
+                        </div>
+                        <div class="timeline-body">
+                            <p class="timeline-test-summary">
+                                <strong>{{ assessment.test_profile }}</strong>
+                                <span>{{ assessment.sample_type|title }} sample</span>
+                            </p>
+                            {% if assessment.flagged_markers %}
+                            <p><strong>Flagged:</strong> 
+                                {% for marker in assessment.flagged_markers %}
+                                <span class="marker-tag">{{ marker.marker }}: {{ marker.result }}</span>
+                                {% endfor %}
+                            </p>
+                            {% endif %}
+                            <details class="history-details">
+                                <summary>
+                                    Readings
+                                    {% if assessment.marker_results %}
+                                    <span>{{ assessment.marker_results|length }} markers</span>
+                                    {% endif %}
+                                </summary>
+                                <div class="history-predictions">
+                                    <details class="history-score-help">
+                                        <summary>About these scores</summary>
+                                        <p>Confidence is a predictor match score, not a medical probability. Color similarity compares the pad with the closest stored chart color; it is not a percentage of matching pixels.</p>
+                                    </details>
+                                    {% if assessment.marker_results %}
+                                    <div class="history-reading-list">
+                                        {% for marker in assessment.marker_results %}
+                                        <div class="history-reading">
+                                            <div class="history-reading-main">
+                                                <span class="history-reading-name">
+                                                {% if marker.marker == 'pH' %}pH{% else %}{{ marker.marker|replace('_', ' ')|title }}{% endif %}:
+                                                </span>
+                                                <strong>{{ marker.result }}</strong>
+                                            </div>
+                                            <div class="history-reading-scores">
+                                                <span>
+                                                {% if marker.confidence_percent is not none %}
+                                                Confidence {{ marker.confidence_percent }}%
+                                                {% else %}
+                                                Confidence unavailable
+                                                {% endif %}
+                                                </span>
+                                                <span>
+                                                {% if marker.color_similarity_percent is not none %}
+                                                Chart {{ marker.chart_match_level or 'unknown' }} · {{ marker.color_similarity_percent }}%
+                                                {% else %}
+                                                Chart match unavailable
+                                                {% endif %}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    {% else %}
+                                    <p>Prediction confidence is unavailable for this assessment.</p>
+                                    {% endif %}
+                                </div>
+                            </details>
+                            <details class="history-details history-photos">
+                                <summary>
+                                    Photos
+                                    <span>
+                                        {% if assessment_images[assessment.assessment_id].source and assessment_images[assessment.assessment_id].overlay %}
+                                            2 images
+                                        {% elif assessment_images[assessment.assessment_id].source or assessment_images[assessment.assessment_id].overlay %}
+                                            1 image
+                                        {% else %}
+                                            None saved
+                                        {% endif %}
+                                    </span>
+                                </summary>
+                                <div class="history-image-grid">
+                                    {% if assessment_images[assessment.assessment_id].source %}
+                                    <figure class="history-image-card">
+                                        <img src="{{ url_for('main.assessment_image', assessment_id=assessment.assessment_id, kind='source') }}"
+                                             alt="Original test-strip photo from {{ assessment.date[:10] }}">
+                                        <figcaption>Original photo</figcaption>
+                                    </figure>
+                                    {% endif %}
+                                    {% if assessment_images[assessment.assessment_id].overlay %}
+                                    <figure class="history-image-card">
+                                        <img src="{{ url_for('main.assessment_image', assessment_id=assessment.assessment_id, kind='overlay') }}"
+                                             alt="Analyzed test-strip photo with pad detections and predictions">
+                                        <figcaption>Analyzed image with detected pads and predicted readings</figcaption>
+                                    </figure>
+                                    {% endif %}
+                                    {% if not assessment_images[assessment.assessment_id].source and not assessment_images[assessment.assessment_id].overlay %}
+                                    <p class="history-images-empty">No stored image is available for this screening.</p>
+                                    {% endif %}
+                                </div>
+                            </details>
+                            <a href="{{ url_for('main.results', assessment_id=assessment.assessment_id) }}" class="btn-primary history-view-results">
+                                View results
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <p>No assessments recorded for this patient.</p>
+                    <a href="{{ url_for('main.new_screening') }}?patient_id={{ patient.patient_id }}" class="btn-primary">
+                        Start Screening
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Trends View -->
+    <div class="tab-content" id="tab-trends">
+        <div class="trends-container">
+            <h3>Marker Trends</h3>
+            <p class="trends-subtitle">Track changes over time for key markers</p>
+
+            {% for marker in history_markers %}
+            <div class="trend-card">
+                <div class="trend-header">
+                    <span class="trend-name">{% if marker == 'pH' %}pH{% else %}{{ marker|replace('_', ' ')|title }}{% endif %}</span>
+                    <span class="trend-status" id="trend-status-{{ marker }}">No data</span>
+                </div>
+                <canvas class="trend-chart" id="chart-{{ marker }}" width="400" height="100"></canvas>
+            </div>
+            {% else %}
+            <p>No marker results are available to trend yet.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Summary View -->
+    <div class="tab-content" id="tab-summary">
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h3>Assessment Statistics</h3>
+                <div class="stat-row">
+                    <span>Total Screenings:</span>
+                    <span class="stat-value">{{ assessments|length }}</span>
+                </div>
+                <div class="stat-row">
+                    <span>Normal:</span>
+                    <span class="stat-value">{{ assessments|selectattr('overall_status', 'equalto', 'normal')|list|length }}</span>
+                </div>
+                <div class="stat-row">
+                    <span>Attention Needed:</span>
+                    <span class="stat-value warning">{{ assessments|selectattr('overall_status', 'in', ['attention', 'followup_recommended'])|list|length }}</span>
+                </div>
+            </div>
+
+            <div class="summary-card">
+                <h3>Health Domain Overview</h3>
+                <div class="domain-summary">
+                    {% set domains = ['metabolic', 'renal', 'urinary', 'hepatic', 'hydration', 'inflammation'] %}
+                    {% for domain in domains %}
+                    <div class="domain-row">
+                        <span class="domain-label">{{ domain|title }}</span>
+                        <span class="domain-summary-status">No data</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="action-bar">
+        <a href="{{ url_for('main.new_screening') }}?patient_id={{ patient.patient_id }}" class="btn-primary">
+            + New Screening
+        </a>
+        <a href="{{ url_for('main.patients') }}" class="btn-secondary">
+            ← Back to Patients
+        </a>
+        <button class="btn-secondary" onclick="window.print()">Print History</button>
+    </div>
+</div>
+
+<style>
+.timeline-test-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+    margin: 0.45rem 0 0.75rem;
+}
+.timeline-test-summary span {
+    color: var(--lumine-muted, #5d6e83);
+}
+.history-details {
+    margin-top: 0.75rem;
+    border-top: 1px solid var(--lumine-line, #dce4ef);
+    border-bottom: 1px solid var(--lumine-line, #dce4ef);
+}
+.history-details > summary,
+.history-score-help > summary {
+    cursor: pointer;
+    text-underline-offset: 0.15em;
+}
+.history-details > summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 2.8rem;
+    color: var(--lumine-ink, #10233f);
+    font-weight: 600;
+}
+.history-details > summary span {
+    color: var(--lumine-muted, #5d6e83);
+    font-size: 0.82rem;
+    font-weight: 400;
+}
+.history-details > summary:focus-visible,
+.history-score-help > summary:focus-visible {
+    outline: 3px solid #78a5ff;
+    outline-offset: 3px;
+    border-radius: 2px;
+}
+.history-details[open] {
+    padding-bottom: 0.75rem;
+}
+.history-photos[open] .history-image-grid {
+    margin-top: 0.5rem;
+}
+.history-details .history-predictions {
+    margin-top: 0.4rem;
+}
+.history-reading-list {
+    max-width: 46rem;
+}
+.history-reading {
+    display: grid;
+    grid-template-columns: minmax(8.5rem, 0.8fr) minmax(0, 1.2fr);
+    align-items: baseline;
+    gap: 0.25rem 1rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid #edf1f6;
+}
+.history-reading:last-child {
+    border-bottom: 0;
+}
+.history-reading-main,
+.history-reading-scores {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+    min-width: 0;
+}
+.history-reading-main {
+    color: var(--lumine-ink, #10233f);
+}
+.history-reading-name,
+.history-reading-scores {
+    color: var(--lumine-muted, #5d6e83);
+}
+.history-reading-main strong {
+    font-weight: 650;
+}
+.history-reading-scores {
+    justify-content: space-between;
+    font-size: 0.8rem;
+}
+.history-score-help {
+    margin: 0.4rem 0 0.5rem;
+    color: var(--lumine-muted, #5d6e83);
+    font-size: 0.82rem;
+}
+.history-score-help p {
+    max-width: 70ch;
+    margin: 0.35rem 0;
+    line-height: 1.5;
+}
+.history-view-results {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 9.5rem;
+    min-height: 2.85rem;
+    margin-top: 0.85rem;
+    padding: 0.65rem 1.1rem;
+    border: 1px solid var(--lumine-blue, #2458d3);
+    border-radius: 0.6rem;
+    background: var(--lumine-blue, #2458d3);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.25;
+    text-decoration: none;
+}
+.history-view-results:hover {
+    border-color: var(--lumine-blue-dark, #1944ae);
+    background: var(--lumine-blue-dark, #1944ae);
+    color: #fff;
+}
+.history-view-results:focus-visible {
+    outline: 3px solid #78a5ff;
+    outline-offset: 3px;
+}
+@media (max-width: 600px) {
+    .history-reading {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.2rem;
+    }
+    .history-reading-scores {
+        justify-content: flex-start;
+        gap: 0.25rem 0.8rem;
+    }
+}
+.history-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #e2e8f0;
+}
+.tab-btn {
+    padding: 10px 20px;
+    background: none;
+    border: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #8a9baa;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+}
+.tab-btn:hover {
+    color: #1a2332;
+}
+.tab-btn.active {
+    color: #2563eb;
+    border-bottom-color: #2563eb;
+}
+.tab-content {
+    display: none;
+}
+.tab-content.active {
+    display: block;
+}
+.timeline {
+    position: relative;
+    padding-left: 30px;
+}
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #e2e8f0;
+}
+.timeline-item {
+    position: relative;
+    margin-bottom: 20px;
+}
+.timeline-marker {
+    position: absolute;
+    left: -24px;
+    top: 4px;
+}
+.marker-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    display: inline-block;
+    border: 2px solid white;
+}
+.timeline-item.status-normal .marker-dot {
+    background: #16a34a;
+}
+.timeline-item.status-attention .marker-dot {
+    background: #d97706;
+}
+.timeline-item.status-followup_recommended .marker-dot {
+    background: #dc2626;
+}
+.timeline-content {
+    background: white;
+    border-radius: 8px;
+    padding: 12px 16px;
+    border: 1px solid #e2e8f0;
+}
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.timeline-date {
+    font-weight: 600;
+}
+.timeline-body {
+    font-size: 0.9rem;
+    color: #4a5b6a;
+}
+.timeline-body p {
+    margin: 2px 0;
+}
+.history-predictions {
+    margin: 10px 0;
+}
+.confidence-note {
+    color: #64748b;
+    font-size: 0.8rem;
+}
+.history-prediction {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 8px;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 0.85rem;
+}
+.history-prediction span:last-child {
+    color: #475569;
+    white-space: nowrap;
+}
+.history-image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin: 12px 0;
+}
+.history-image-card {
+    margin: 0;
+    padding: 8px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+.history-image-card img {
+    display: block;
+    width: 100%;
+    max-height: 260px;
+    object-fit: contain;
+    background: #f8fafc;
+    border-radius: 5px;
+}
+.history-image-card figcaption,
+.history-images-empty {
+    margin-top: 6px;
+    color: #64748b;
+    font-size: 0.8rem;
+}
+.view-btn-small {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: #2563eb;
+}
+.trend-card {
+    background: white;
+    border-radius: 8px;
+    padding: 12px 16px;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 12px;
+}
+.trend-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.trend-name {
+    font-weight: 600;
+}
+.trend-status {
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+.trend-chart {
+    width: 100%;
+    height: 80px;
+}
+.summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+.summary-card {
+    background: white;
+    border-radius: 8px;
+    padding: 16px 20px;
+    border: 1px solid #e2e8f0;
+}
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid #f0f4f8;
+    font-size: 0.9rem;
+}
+.stat-row .warning {
+    color: #d97706;
+}
+.domain-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid #f0f4f8;
+    font-size: 0.9rem;
+}
+.domain-label {
+    color: #4a5b6a;
+}
+.marker-tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 4px;
+    background: #fef3c7;
+    color: #d97706;
+    font-size: 0.75rem;
+    margin: 1px;
+}
+.btn-delete-assessment {
+    margin-left: auto;
+    padding: 5px 10px;
+    border: 1px solid #dc2626;
+    border-radius: 6px;
+    background: #dc2626;
+    color: #fff;
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+.btn-delete-assessment:hover {
+    background: #b91c1c;
+}
+.btn-delete-assessment:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+@media (max-width: 768px) {
+    .summary-grid {
+        grid-template-columns: 1fr;
+    }
+    .history-tabs {
+        flex-wrap: wrap;
+    }
+    .tab-btn {
+        flex: 1;
+        text-align: center;
+        padding: 8px 12px;
+        font-size: 0.8rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.btn-delete-assessment').forEach(function(deleteButton) {
+      deleteButton.addEventListener('click', function() {
+        var patientId = this.dataset.patientId;
+        var assessmentId = this.dataset.assessmentId;
+        var assessmentDate = this.dataset.assessmentDate;
+        if (!window.confirm(
+            'Delete this screening result from ' + assessmentDate + '? This cannot be undone. Other screenings and the patient will not be deleted.'
+        )) return;
+
+        var button = this;
+        button.disabled = true;
+        fetch(
+            '/api/patients/' + encodeURIComponent(patientId) +
+            '/assessments/' + encodeURIComponent(assessmentId),
+            {method: 'DELETE'}
+        )
+            .then(function(response) {
+                return response.json().catch(function() {
+                    throw new Error('Server error while deleting screening');
+                }).then(function(data) {
+                    if (!response.ok || !data.success) {
+                        throw new Error(data.error || 'Screening deletion failed');
+                    }
+                    if (data.cleanup_warnings && data.cleanup_warnings.length) {
+                        alert('The screening was deleted, but some stored images could not be removed.');
+                    }
+                    window.location.reload();
+                });
+            })
+            .catch(function(error) {
+                alert('Could not delete screening: ' + error.message);
+                button.disabled = false;
+            });
+      });
+    });
+
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var tab = this.dataset.tab;
+            document.querySelectorAll('.tab-btn').forEach(function(b) {
+                b.classList.remove('active');
+            });
+            this.classList.add('active');
+            document.querySelectorAll('.tab-content').forEach(function(c) {
+                c.classList.remove('active');
+            });
+            document.getElementById('tab-' + tab).classList.add('active');
+        });
+    });
+
+    // Get assessments data from hidden div
+    var dataElement = document.getElementById('assessments-data');
+    if (dataElement) {
+        var assessments = JSON.parse(dataElement.getAttribute('data-assessments') || '[]');
+        var markers = {{ history_markers|tojson }};
+
+        markers.forEach(function(marker) {
+            var data = [];
+            var labels = [];
+            var hasData = false;
+
+            var reversed = assessments.slice().reverse();
+            reversed.forEach(function(a) {
+                var markerResult = (a.marker_results || []).find(function(m) {
+                    return m.marker === marker;
+                });
+                if (markerResult) {
+                    var value = parseFloat(markerResult.result) || 0;
+                    data.push(value);
+                    labels.push(a.date.slice(5, 10));
+                    hasData = true;
+                }
+            });
+
+            if (hasData && window.LUMINE) {
+                window.LUMINE.createTrendChart('chart-' + marker, data, labels);
+                
+                var statusEl = document.getElementById('trend-status-' + marker);
+                if (data.length > 0) {
+                    var lastValue = data[data.length - 1];
+                    var firstValue = data[0];
+                    var diff = lastValue - firstValue;
+                    
+                    if (Math.abs(diff) < 0.1) {
+                        statusEl.textContent = 'Stable';
+                        statusEl.style.color = '#16a34a';
+                    } else if (diff > 0) {
+                        statusEl.textContent = 'Increasing ↑';
+                        statusEl.style.color = '#d97706';
+                    } else {
+                        statusEl.textContent = 'Decreasing ↓';
+                        statusEl.style.color = '#2563eb';
+                    }
+                }
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

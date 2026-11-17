@@ -1,0 +1,476 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="annotation-page">
+
+  <!-- ── Page header ─────────────────────────────────────────── -->
+  <div class="page-header">
+    <h1 class="page-title">Dataset Annotation Studio</h1>
+    <p class="page-subtitle">Build labelled training datasets from strip photos</p>
+    <div class="header-actions">
+      <button id="btn-new-dataset" class="btn btn-primary" onclick="openNewDatasetModal()">
+        + New Dataset
+      </button>
+      <a href="/annotation" class="btn btn-secondary">Reset View</a>
+    </div>
+  </div>
+
+  <div class="annotation-layout">
+
+    <!-- ── Left panel: dataset + sample list ───────────────────── -->
+    <aside class="panel-left" id="panel-datasets">
+
+      <div class="panel-section">
+        <h2 class="panel-heading">Datasets
+          <span class="badge" id="ds-count">{{ datasets|length }}</span>
+        </h2>
+
+        {% if datasets %}
+          <ul class="dataset-list" id="dataset-list">
+            {% for ds in datasets %}
+            <li class="dataset-item {% if selected_dataset_id == ds.dataset_id %}active{% endif %}"
+                id="ds-{{ ds.dataset_id }}"
+                onclick="selectDataset('{{ ds.dataset_id }}')">
+              <div class="ds-name">{{ ds.name }}</div>
+              <div class="ds-meta">
+                {{ ds.strip_type }} ·
+                <strong>{{ ds.sample_count }}</strong> samples ·
+                <strong>{{ ds.label_count }}</strong> labels
+              </div>
+              <div class="ds-actions">
+                <button class="btn-icon" title="Export CSV"
+                        onclick="event.stopPropagation(); exportDataset('{{ ds.dataset_id }}','csv')">Download CSV</button>
+                <button class="btn-icon" title="Export ZIP"
+                        onclick="event.stopPropagation(); exportDataset('{{ ds.dataset_id }}','zip')">Download ZIP</button>
+                <button class="btn-icon danger" title="Delete"
+                        onclick="event.stopPropagation(); deleteDataset('{{ ds.dataset_id }}')">Delete</button>
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty-msg">No datasets yet — create one above.</p>
+        {% endif %}
+      </div>
+
+      <!-- Sample list for selected dataset -->
+      <div class="panel-section" id="sample-panel" style="display:none">
+        <h2 class="panel-heading">Samples
+          <button class="btn btn-sm btn-primary" onclick="openUploadModal()">Upload Photo</button>
+          <button class="btn btn-sm btn-secondary" onclick="assignSplit()">Assign Split</button>
+        </h2>
+        <ul class="sample-list" id="sample-list"></ul>
+      </div>
+
+    </aside>
+
+    <!-- ── Main annotation workspace ───────────────────────────── -->
+    <main class="annotation-workspace" id="workspace">
+
+      {% if sample %}
+      <!-- Pre-loaded sample from URL param -->
+      <div class="workspace-header">
+        <h2>Annotating: {{ sample.sample_id }}</h2>
+        <span class="badge {{ 'badge-synthetic' if sample.is_synthetic else 'badge-real' }}">
+          {{ 'SYNTHETIC' if sample.is_synthetic else 'REAL' }}
+        </span>
+        <span class="badge">Split: {{ sample.split }}</span>
+      </div>
+
+      <div class="workspace-body">
+        <div class="image-panel">
+          <img id="sample-img" src="/uploads/dataset_samples/{{ sample.image_path.split('/')[-1].split('\\')[-1] }}"
+               alt="Strip photo" class="strip-img"
+               onerror="this.src='/static/img/placeholder_strip.png'" />
+          <div class="overlay-hint">Auto-detected overlay (if available)</div>
+        </div>
+
+        <div class="label-panel">
+          <h3>Pad Labels
+            <span class="label-source-row">
+              Label source:
+              <select id="label-source-sel">
+                <option value="visual">Visual judgment</option>
+                <option value="standard_solution">Standard solution</option>
+                <option value="chart">Reference chart</option>
+              </select>
+            </span>
+          </h3>
+          <div class="annotator-row">
+            Annotator: <input id="annotator-input" type="text" value="user" class="input-sm" placeholder="Your name">
+          </div>
+
+          <form id="label-form">
+            <table class="label-table">
+              <thead>
+                <tr>
+                  <th>Pad #</th>
+                  <th>Marker</th>
+                  <th>True Level</th>
+                  <th>Measured Value</th>
+                </tr>
+              </thead>
+              <tbody id="label-rows">
+                {% for i in range(markers|length) %}{% set marker = markers[i] %}
+                {% set existing = namespace(found=none) %}
+                {% for lbl in labels %}{% if lbl.pad_index == i %}{% set existing.found = lbl %}{% endif %}{% endfor %}
+                <tr class="label-row" data-pad="{{ i }}" data-marker="{{ marker }}">
+                  <td class="pad-num">{{ i }}</td>
+                  <td class="marker-name">{{ marker }}</td>
+                  <td>
+                    <input class="level-input" name="level_{{ i }}" type="text"
+                           value="{{ existing.found.true_level if existing.found else '' }}"
+                           placeholder="e.g. negative / +1 / 7.0"
+                           autocomplete="off">
+                  </td>
+                  <td>
+                    <input class="measured-input" name="measured_{{ i }}" type="text"
+                           value="{{ existing.found.measured_value if existing.found else '' }}"
+                           placeholder="optional numeric">
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+
+            <div class="form-actions">
+              <button type="button" id="btn-save-labels"
+                      onclick="saveLabels('{{ sample.sample_id }}')"
+                      class="btn btn-primary">Save Labels</button>
+              <span id="save-status" class="save-status"></span>
+            </div>
+          </form>
+        </div>
+      </div>
+      {% else %}
+      <!-- Empty workspace placeholder -->
+      <div class="workspace-empty">
+        <h2>No Sample Selected</h2>
+        <p>Select a dataset on the left, then click a sample to annotate it,<br>
+           or upload a new strip photo.</p>
+      </div>
+      {% endif %}
+
+    </main>
+
+  </div><!-- end .annotation-layout -->
+</div><!-- end .annotation-page -->
+
+<!-- ── New Dataset Modal ─────────────────────────────────────────── -->
+<div id="modal-new-dataset" class="modal-overlay" style="display:none">
+  <div class="modal-card">
+    <h2>Create New Dataset</h2>
+    <label>Name <input id="ds-name-input" type="text" class="input-full" placeholder="e.g. URS-4K Batch 1"></label>
+    <label>Strip Type
+      <select id="ds-striptype-sel" class="input-full">
+        <option value="URS-4K">URS-4K (4-pad urine)</option>
+        <option value="SALIVA-4K">SALIVA-4K (Saliva)</option>
+      </select>
+    </label>
+    <label>Description <textarea id="ds-desc-input" class="input-full" rows="2"
+            placeholder="Optional notes about this dataset"></textarea></label>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="createDataset()">Create</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-new-dataset')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Upload Sample Modal ──────────────────────────────────────── -->
+<div id="modal-upload" class="modal-overlay" style="display:none">
+  <div class="modal-card">
+    <h2>Upload Strip Photo</h2>
+    <label>Photo (JPEG/PNG, max 20 MB)
+      <input id="upload-file" type="file" accept=".jpg,.jpeg,.png" class="input-full">
+    </label>
+    <label>
+      <input type="checkbox" id="upload-synthetic"> Mark as synthetic
+    </label>
+    <label>Capture notes (phone, lighting…)
+      <input id="upload-meta" type="text" class="input-full" placeholder='{"phone":"Pixel 7","lighting":"daylight"}'>
+    </label>
+    <div id="upload-progress" style="display:none">
+      <progress id="upload-bar" value="0" max="100"></progress>
+      <span id="upload-pct">0%</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="uploadSample()">Upload</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-upload')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+/* ── Annotation Page Styles ──────────────────────────────────── */
+.annotation-page { padding: 1.5rem 2rem; }
+.page-header { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:1.5rem; }
+.page-title  { font-size:1.8rem; font-weight:700; margin:0; }
+.page-subtitle { color:#888; margin:0.25rem 0 0; }
+.header-actions { display:flex; gap:.75rem; }
+
+.annotation-layout { display:grid; grid-template-columns:320px 1fr; gap:1.5rem; min-height:70vh; }
+
+/* Left panel */
+.panel-left     { background:#1a1a2e; border:1px solid #2a2a4e; border-radius:10px; overflow:hidden; }
+.panel-section  { padding:1rem; border-bottom:1px solid #2a2a4e; }
+.panel-heading  { font-size:.95rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em;
+                  color:#a0a8c8; margin:0 0 .75rem; display:flex; align-items:center; gap:.5rem; }
+
+.dataset-list { list-style:none; margin:0; padding:0; }
+.dataset-item { padding:.75rem; border-radius:8px; cursor:pointer; margin-bottom:.5rem;
+                border:1px solid transparent; transition:all .15s; }
+.dataset-item:hover { background:#222244; border-color:#4444aa; }
+.dataset-item.active { background:#1e2050; border-color:#6666dd; }
+.ds-name { font-weight:600; margin-bottom:.2rem; }
+.ds-meta { font-size:.8rem; color:#8888aa; margin-bottom:.35rem; }
+.ds-actions { display:flex; gap:.4rem; }
+.btn-icon { padding:.2rem .5rem; font-size:.75rem; border:1px solid #3a3a5e; border-radius:5px;
+            background:transparent; color:#a0a8c8; cursor:pointer; transition:all .15s; }
+.btn-icon:hover { background:#3a3a6e; color:#fff; }
+.btn-icon.danger:hover { background:#7a2222; color:#fff; border-color:#aa3333; }
+
+.sample-list { list-style:none; margin:0; padding:0; max-height:260px; overflow-y:auto; }
+.sample-item { padding:.5rem .75rem; border-radius:6px; cursor:pointer; margin-bottom:.3rem;
+               border:1px solid transparent; font-size:.85rem; display:flex; justify-content:space-between; align-items:center; }
+.sample-item:hover  { background:#222244; }
+.sample-item.active { background:#1e2050; border-color:#6666dd; }
+.sample-split { font-size:.7rem; padding:.1rem .4rem; border-radius:4px; background:#2a2a4e; color:#8888cc; }
+
+.empty-msg { color:#666; font-size:.85rem; text-align:center; padding:1rem; }
+
+/* Workspace */
+.annotation-workspace { background:#111127; border:1px solid #2a2a4e; border-radius:10px; padding:1.5rem; }
+.workspace-header { display:flex; align-items:center; gap:.75rem; margin-bottom:1.25rem; }
+.workspace-body  { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; }
+.workspace-empty { text-align:center; padding:4rem 2rem; color:#555; }
+.workspace-empty .empty-icon { font-size:4rem; margin-bottom:1rem; }
+.workspace-empty h2 { color:#666; }
+
+.image-panel { position:relative; }
+.strip-img   { width:100%; max-height:420px; object-fit:contain; border-radius:8px;
+               border:1px solid #2a2a4e; background:#0a0a1a; }
+.overlay-hint { font-size:.75rem; color:#555; margin-top:.4rem; text-align:center; }
+
+.label-panel h3 { font-size:1rem; font-weight:600; margin:0 0 .75rem; display:flex; align-items:center;
+                  gap:.75rem; flex-wrap:wrap; }
+.label-source-row { font-size:.8rem; color:#888; }
+.annotator-row { font-size:.8rem; color:#888; margin-bottom:.75rem; display:flex; align-items:center; gap:.5rem; }
+.input-sm { background:#1a1a2e; border:1px solid #3a3a5e; color:#e0e0f0; border-radius:5px;
+            padding:.25rem .5rem; width:140px; font-size:.8rem; }
+
+.label-table { width:100%; border-collapse:collapse; font-size:.85rem; }
+.label-table th { text-align:left; padding:.5rem; border-bottom:1px solid #2a2a4e; color:#8888aa;
+                  font-weight:500; font-size:.8rem; }
+.label-table td { padding:.35rem .5rem; }
+.pad-num     { color:#6666cc; font-weight:700; width:40px; }
+.marker-name { color:#c0c8e8; font-weight:600; }
+.level-input, .measured-input {
+  background:#1a1a2e; border:1px solid #3a3a5e; color:#e0e0f0; border-radius:5px;
+  padding:.3rem .5rem; width:100%; font-size:.82rem; transition:border .15s;
+}
+.level-input:focus, .measured-input:focus { outline:none; border-color:#6666dd; }
+
+.form-actions { margin-top:1rem; display:flex; align-items:center; gap:1rem; }
+.save-status  { font-size:.85rem; color:#44cc88; }
+
+/* Badges */
+.badge { font-size:.7rem; padding:.2rem .55rem; border-radius:20px;
+         background:#2a2a4e; color:#8888cc; font-weight:600; }
+.badge-synthetic { background:#3a2a00; color:#cc9922; }
+.badge-real      { background:#0a2a1a; color:#22cc66; }
+
+/* Modals */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:900;
+                 display:flex; align-items:center; justify-content:center; }
+.modal-card { background:#1a1a2e; border:1px solid #3a3a6e; border-radius:12px; padding:2rem;
+              min-width:380px; max-width:520px; }
+.modal-card h2 { margin:0 0 1.25rem; font-size:1.25rem; }
+.modal-card label { display:block; margin-bottom:.85rem; font-size:.88rem; color:#a0a8c8; }
+.input-full { width:100%; background:#111127; border:1px solid #3a3a5e; color:#e0e0f0;
+              border-radius:6px; padding:.45rem .75rem; margin-top:.3rem; font-size:.9rem; box-sizing:border-box; }
+.input-full:focus { outline:none; border-color:#6666dd; }
+.modal-actions { display:flex; gap:.75rem; margin-top:1.25rem; }
+
+/* Buttons (use existing .btn classes from global CSS, override here if needed) */
+.btn-sm { padding:.25rem .6rem; font-size:.75rem; }
+progress { width:100%; height:10px; border-radius:5px; margin-top:.5rem; }
+</style>
+
+<script>
+/* ── State ──────────────────────────────────────────────────── */
+let _currentDatasetId = "{{ selected_dataset_id or '' }}";
+
+/* ── Modal helpers ──────────────────────────────────────────── */
+function openNewDatasetModal() { document.getElementById('modal-new-dataset').style.display = 'flex'; }
+function openUploadModal()     { document.getElementById('modal-upload').style.display = 'flex'; }
+function closeModal(id)        { document.getElementById(id).style.display = 'none'; }
+
+/* ── Create dataset ─────────────────────────────────────────── */
+async function createDataset() {
+  const name      = document.getElementById('ds-name-input').value.trim();
+  const stripType = document.getElementById('ds-striptype-sel').value;
+  const desc      = document.getElementById('ds-desc-input').value.trim();
+  if (!name) { alert('Dataset name is required.'); return; }
+
+  const res = await fetch('/api/datasets', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, strip_type: stripType, description: desc })
+  });
+  const json = await res.json();
+  if (json.dataset_id) {
+    closeModal('modal-new-dataset');
+    window.location.href = `/annotation?dataset_id=${json.dataset_id}`;
+  } else { alert('Error creating dataset: ' + JSON.stringify(json)); }
+}
+
+/* ── Select dataset → load sample list ─────────────────────── */
+async function selectDataset(dsId) {
+  _currentDatasetId = dsId;
+  document.querySelectorAll('.dataset-item').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById('ds-' + dsId);
+  if (el) el.classList.add('active');
+
+  const res = await fetch('/api/datasets/' + dsId + '/samples');
+  const json = await res.json();
+  const samples = json.samples || [];
+
+  const list = document.getElementById('sample-list');
+  list.innerHTML = '';
+  if (samples.length === 0) {
+    list.innerHTML = '<li class="empty-msg">No samples yet. Upload a photo.</li>';
+  } else {
+    samples.forEach(s => {
+      const li = document.createElement('li');
+      li.className = 'sample-item';
+      li.id = 'smp-' + s.sample_id;
+      li.innerHTML = `
+        <span>${s.sample_id.slice(-10)} <span class="sample-split">${s.split}</span>
+              <small style="color:#555">· ${s.label_count} labels</small></span>
+        <button class="btn-icon danger" onclick="event.stopPropagation(); deleteSample('${s.sample_id}')">Delete</button>
+      `;
+      li.onclick = () => goAnnotate(s.sample_id, dsId);
+      list.appendChild(li);
+    });
+  }
+  document.getElementById('sample-panel').style.display = '';
+}
+
+function goAnnotate(sampleId, dsId) {
+  window.location.href = `/annotation?sample_id=${sampleId}&dataset_id=${dsId}`;
+}
+
+/* ── Upload sample ──────────────────────────────────────────── */
+async function uploadSample() {
+  if (!_currentDatasetId) { alert('Select a dataset first.'); return; }
+  const fileInput = document.getElementById('upload-file');
+  if (!fileInput.files.length) { alert('Please choose a file.'); return; }
+
+  const file      = fileInput.files[0];
+  const isSynth   = document.getElementById('upload-synthetic').checked ? '1' : '0';
+  const metaRaw   = document.getElementById('upload-meta').value.trim() || '{}';
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('is_synthetic', isSynth);
+  fd.append('capture_meta', metaRaw);
+
+  const prog    = document.getElementById('upload-progress');
+  const bar     = document.getElementById('upload-bar');
+  const pct     = document.getElementById('upload-pct');
+  prog.style.display = '';
+
+  const xhr = new XMLHttpRequest();
+  xhr.upload.onprogress = e => {
+    const v = Math.round(e.loaded / e.total * 100);
+    bar.value = v; pct.textContent = v + '%';
+  };
+  xhr.onload = () => {
+    prog.style.display = 'none';
+    const json = JSON.parse(xhr.responseText);
+    if (json.sample_id) {
+      closeModal('modal-upload');
+      goAnnotate(json.sample_id, _currentDatasetId);
+    } else { alert('Upload error: ' + JSON.stringify(json)); }
+  };
+  xhr.onerror = () => alert('Upload network error.');
+  xhr.open('POST', '/api/datasets/' + _currentDatasetId + '/samples');
+  xhr.send(fd);
+}
+
+/* ── Save labels ────────────────────────────────────────────── */
+async function saveLabels(sampleId) {
+  const rows      = document.querySelectorAll('.label-row');
+  const annotator = document.getElementById('annotator-input').value.trim() || 'user';
+  const source    = document.getElementById('label-source-sel').value;
+  const labels    = [];
+
+  rows.forEach(row => {
+    const pad    = parseInt(row.dataset.pad);
+    const marker = row.dataset.marker;
+    const level  = row.querySelector('.level-input').value.trim();
+    const meas   = row.querySelector('.measured-input').value.trim();
+    if (level) {
+      labels.push({ marker, pad_index: pad, true_level: level,
+                    measured_value: meas || null, label_source: source });
+    }
+  });
+
+  if (!labels.length) { alert('Enter at least one level before saving.'); return; }
+
+  const status = document.getElementById('save-status');
+  status.textContent = 'Saving…';
+  const res  = await fetch('/api/samples/' + sampleId + '/labels', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ labels, annotator })
+  });
+  const json = await res.json();
+  if (json.success) {
+    status.textContent = `Saved ${json.saved} labels`;
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } else { status.textContent = 'Error saving labels: ' + JSON.stringify(json); }
+}
+
+/* ── Delete helpers ─────────────────────────────────────────── */
+async function deleteDataset(dsId) {
+  if (!confirm('Delete this dataset and ALL its samples/labels? This cannot be undone.')) return;
+  await fetch('/api/datasets/' + dsId, { method: 'DELETE' });
+  window.location.href = '/annotation';
+}
+
+async function deleteSample(sampleId) {
+  if (!confirm('Delete this sample and all its labels?')) return;
+  await fetch('/api/samples/' + sampleId, { method: 'DELETE' });
+  selectDataset(_currentDatasetId);
+}
+
+/* ── Export ─────────────────────────────────────────────────── */
+function exportDataset(dsId, fmt) {
+  window.location.href = `/api/datasets/${dsId}/export/${fmt}`;
+}
+
+/* ── Assign group split ─────────────────────────────────────── */
+async function assignSplit() {
+  if (!_currentDatasetId) return;
+  const res  = await fetch('/api/datasets/' + _currentDatasetId + '/split', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ train_frac: 0.70, val_frac: 0.15 })
+  });
+  const json = await res.json();
+  if (json.split_counts) {
+    const c = json.split_counts;
+    alert(`Split assigned:\n  Train: ${c.train}\n  Val: ${c.val}\n  Test: ${c.test}`);
+    selectDataset(_currentDatasetId);
+  }
+}
+
+/* ── Init: pre-load dataset panel if dataset_id in URL ──────── */
+document.addEventListener('DOMContentLoaded', () => {
+  if (_currentDatasetId) selectDataset(_currentDatasetId);
+});
+</script>
+{% endblock %}

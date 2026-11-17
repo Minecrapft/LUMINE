@@ -1,0 +1,1292 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="ml-studio-page" id="ml-studio-root">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">ML Studio</h1>
+      <p class="page-subtitle">Dataset management &middot; Training &middot; Model activation</p>
+    </div>
+    <div class="header-badges">
+      <span class="badge badge-warning" id="synth-guard-badge" title="Activation blocked for synthetic-only data">Synthetic Guard Active</span>
+      <span class="badge badge-info" id="active-model-count">Loading...</span>
+    </div>
+  </div>
+  <div class="tab-bar" id="studio-tabs">
+    <button class="tab-btn active" data-tab="datasets" id="tab-datasets">Datasets</button>
+    <button class="tab-btn" data-tab="training"  id="tab-training">Training</button>
+    <button class="tab-btn" data-tab="models"    id="tab-models">Models</button>
+    <button class="tab-btn" data-tab="jobs"      id="tab-jobs">Jobs</button>
+  </div>
+  <!-- TAB 1 DATASETS -->
+  <div class="tab-panel active" id="tab-panel-datasets">
+    <div class="card">
+      <h2 class="card-title">New Dataset</h2>
+      <form id="create-dataset-form" class="inline-form">
+        <input id="ds-name" type="text" placeholder="Dataset name *" required class="form-input">
+        <select id="ds-strip-type" class="form-input">
+          <option value="URS-4K">URS-4K (4 pads)</option>
+          <option value="SALIVA-4K">SALIVA-4K</option>
+        </select>
+        <input id="ds-desc" type="text" placeholder="Description (optional)" class="form-input">
+        <button type="submit" class="btn btn-primary" id="create-ds-btn">Create</button>
+      </form>
+      <p id="create-ds-msg" class="form-msg"></p>
+    </div>
+    <div class="card">
+      <h2 class="card-title">Dataset Library</h2>
+      <div id="dataset-list-container">
+        {% if datasets %}
+        <table class="data-table" id="dataset-table">
+          <thead><tr><th>Name</th><th>Strip</th><th>Samples</th><th>Labels</th><th>Created</th><th>Actions</th></tr></thead>
+          <tbody>
+            {% for ds in datasets %}
+            <tr id="ds-row-{{ ds.dataset_id }}">
+              <td><strong>{{ ds.name }}</strong></td>
+              <td><span class="badge badge-blue">{{ ds.strip_type }}</span></td>
+              <td id="ds-scount-{{ ds.dataset_id }}">{{ ds.sample_count|default(0) }}</td>
+              <td id="ds-lcount-{{ ds.dataset_id }}">{{ ds.label_count|default(0) }}</td>
+              <td class="text-muted small">{{ ds.created_at[:10] if ds.created_at else '' }}</td>
+              <td class="action-cell">
+                <button class="btn btn-sm btn-primary upload-photos-btn"
+                        data-dsid="{{ ds.dataset_id }}" data-dsname="{{ ds.name }}"
+                        id="upload-btn-{{ ds.dataset_id }}">Upload Photos</button>
+                <button class="btn btn-sm btn-secondary open-annotate-btn" data-dsid="{{ ds.dataset_id }}" id="annotate-btn-{{ ds.dataset_id }}">Annotate</button>
+                <button class="btn btn-sm btn-outline export-ds-btn" data-dsid="{{ ds.dataset_id }}" id="export-btn-{{ ds.dataset_id }}">Export CSV</button>
+                <button class="btn btn-sm btn-danger delete-ds-btn" data-dsid="{{ ds.dataset_id }}" id="del-ds-btn-{{ ds.dataset_id }}">Delete</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state" id="ds-empty">No datasets yet. Create one above.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Upload / Import panel (shown when Upload Photos clicked) -->
+    <div class="card hidden" id="upload-panel">
+      <div class="upload-panel-header">
+        <h2 class="card-title" style="margin:0">Upload to: <span id="upload-ds-name" style="color:#6c63ff"></span></h2>
+        <button class="btn btn-sm btn-outline" id="upload-panel-close">Close</button>
+      </div>
+      <input type="hidden" id="upload-ds-id">
+
+      <!-- Tabs within upload panel -->
+      <div class="utab-bar">
+        <button class="utab active" data-utab="photos" id="utab-photos">Photos / Folder</button>
+        <button class="utab" data-utab="zip" id="utab-zip">ZIP Archive</button>
+        <button class="utab" data-utab="yolo" id="utab-yolo">Roboflow YOLOv8 (.zip)</button>
+        <button class="utab" data-utab="labels" id="utab-labels">Import Labels CSV</button>
+      </div>
+
+      <!-- Photos tab -->
+      <div class="utab-panel active" id="utab-panel-photos">
+        <label class="upload-drop" for="bulk-file-input" id="bulk-drop-zone">
+          <span id="bulk-drop-label">Drop JPEG/PNG files here, click to browse, or use Folder button</span>
+          <input type="file" id="bulk-file-input" accept="image/jpeg,image/png" multiple class="hidden">
+        </label>
+        <div class="upload-opts-row">
+          <label class="btn btn-sm btn-outline" for="folder-file-input" id="folder-input-label">Select Folder</label>
+          <input type="file" id="folder-file-input" webkitdirectory multiple class="hidden">
+          <label class="checkbox-label"><input type="checkbox" id="bulk-is-synthetic"> Mark as synthetic</label>
+        </div>
+        <button class="btn btn-primary" id="bulk-upload-btn" disabled>Upload Selected Files</button>
+        <!-- Progress -->
+        <div id="bulk-progress-wrap" class="hidden" style="margin-top:1rem">
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-track"><div class="progress-bar-fill" id="bulk-progress-bar" style="width:0%"></div></div>
+            <span id="bulk-progress-label">0 / 0</span>
+          </div>
+          <div id="bulk-error-list" style="margin-top:.5rem;font-size:.82rem;color:#ef4444"></div>
+        </div>
+      </div>
+
+      <!-- ZIP tab -->
+      <div class="utab-panel hidden" id="utab-panel-zip">
+        <p class="text-muted small" style="margin-bottom:.75rem">
+          Upload a ZIP containing JPEG/PNG images. Optionally include a <code>labels.csv</code>
+          with columns: <code>filename, marker, pad_index, true_level</code> to auto-label.
+        </p>
+        <input type="file" id="zip-file-input" accept=".zip" class="form-input" style="margin-bottom:.75rem">
+        <label class="checkbox-label" style="margin-bottom:.75rem"><input type="checkbox" id="zip-is-synthetic"> Mark all as synthetic</label>
+        <button class="btn btn-primary" id="zip-upload-btn">Import ZIP</button>
+        <div id="zip-result" class="form-msg" style="margin-top:.75rem"></div>
+      </div>
+
+      <!-- Roboflow YOLOv8 tab -->
+      <div class="utab-panel hidden" id="utab-panel-yolo">
+        <p class="text-muted small" style="margin-bottom:.75rem">
+          Upload a complete Roboflow YOLOv8 export <strong>.zip</strong> containing:
+          <code>data.yaml</code>, <code>train/</code>, <code>valid/</code> (images + labels).
+          The platform automatically registers samples and coordinates for strip and pad detector training.
+        </p>
+        <input type="file" id="yolo-file-input" accept=".zip" class="form-input" style="margin-bottom:.75rem">
+        <button class="btn btn-primary" id="yolo-upload-btn">Import Roboflow YOLO ZIP</button>
+        <div id="yolo-result" class="form-msg" style="margin-top:.75rem"></div>
+      </div>
+
+      <!-- Labels CSV tab -->
+      <div class="utab-panel hidden" id="utab-panel-labels">
+        <p class="text-muted small" style="margin-bottom:.75rem">
+          Import a CSV of pad labels for samples already in this dataset.<br>
+          Required columns: <code>sample_id, marker, pad_index, true_level</code><br>
+          Optional: <code>label_source, pad_color, white_ref_rgb, measured_value</code>
+        </p>
+        <input type="file" id="labels-csv-input" accept=".csv" class="form-input" style="margin-bottom:.75rem">
+        <button class="btn btn-primary" id="labels-csv-btn">Import Labels CSV</button>
+        <div id="labels-csv-result" class="form-msg" style="margin-top:.75rem"></div>
+      </div>
+    </div>
+
+  </div><!-- /tab-panel-datasets -->
+
+  <div class="tab-panel hidden" id="tab-panel-training">
+    <div class="card">
+      <h2 class="card-title">Launch Training Job</h2>
+      <form id="train-form" class="train-form">
+        <div class="form-row"><label>Strip Type</label>
+          <select id="train-strip" class="form-input" required>
+            <option value="URS-4K">URS-4K (4 pads)</option>
+            <option value="SALIVA-4K">SALIVA-4K</option>
+          </select></div>
+        <div class="form-row" id="row-train-marker"><label>Marker</label>
+          <select id="train-marker" class="form-input">
+              <optgroup label="URS-4K (4 pads)" data-strip-type="URS-4K">
+                <option value="glucose">Glucose</option>
+                <option value="pH">pH</option>
+                <option value="protein">Protein</option>
+                <option value="ketones">Ketones</option>
+              </optgroup>
+              <optgroup label="SALIVA-4K" data-strip-type="SALIVA-4K">
+                <option value="glucose">Glucose</option>
+                <option value="protein">Protein</option>
+                <option value="pH">pH</option>
+                <option value="blood">Blood</option>
+                <option value="nitrite">Nitrite</option>
+                <option value="leukocytes">Leukocytes</option>
+                <option value="ketones">Ketones</option>
+                <option value="specific_gravity">Specific gravity</option>
+                <option value="bilirubin">Bilirubin</option>
+                <option value="urobilinogen">Urobilinogen</option>
+              </optgroup>
+            </select></div>
+        <div class="form-row"><label>Algorithm</label>
+          <select id="train-algo" class="form-input">
+            <option value="rf">Random Forest (rf)</option>
+            <option value="gb">Gradient Boosting (gb)</option>
+            <option value="yolov8_nano">YOLOv8-Nano (Strip + Pad Detector / ONNX)</option>
+          </select></div>
+        <div class="form-row" id="row-train-epochs" style="display:none"><label>Epochs</label>
+          <input type="number" id="train-epochs" value="15" min="1" max="300" class="form-input"></div>
+        <div class="form-row" id="row-train-estimators"><label>Estimators</label>
+          <input type="number" id="train-estimators" value="200" min="10" max="2000" class="form-input"></div>
+        <div class="form-row" id="row-train-min-per-class"><label>Min samples / class</label>
+          <input type="number" id="train-min-per-class" value="5" min="1" max="100" class="form-input"></div>
+        <div class="form-row"><label>Datasets</label>
+          <div id="train-dataset-checkboxes" class="checkbox-group">
+            {% for ds in datasets %}
+            <label class="checkbox-label">
+              <input type="checkbox" name="ds" value="{{ ds.dataset_id }}" id="train-ds-{{ ds.dataset_id }}"
+                     data-yolo-ready="{{ 'true' if ds.yolo_ready else 'false' }}">
+              {{ ds.name }} ({{ ds.strip_type }}, {{ ds.sample_count|default(0) }} samples)
+            </label>
+            {% endfor %}
+            {% if not datasets %}<span class="text-muted">No datasets yet.</span>{% endif %}
+          </div></div>
+        <p id="train-dataset-help" class="form-msg" aria-live="polite">
+          Select one or more datasets for pad classification training.
+        </p>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="train-submit-btn">Start Training</button>
+        </div>
+      </form>
+      <p id="train-msg" class="form-msg"></p>
+    </div>
+    <div class="card hidden" id="job-progress-panel">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem">
+        <h2 class="card-title" style="margin:0">Job Progress — <span id="job-progress-id"></span></h2>
+        <div style="display:flex; gap:.5rem">
+          <button class="btn btn-sm btn-outline" id="close-progress-btn">Hide</button>
+          <button class="btn btn-sm btn-outline" id="pause-training-btn" style="display:none">Pause Training</button>
+          <button class="btn btn-sm btn-danger" id="cancel-training-btn">Stop Training</button>
+        </div>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-track"><div class="progress-bar-fill" id="job-progress-bar" style="width:0%"></div></div>
+        <span id="job-progress-pct">0%</span>
+      </div>
+      <p style="margin:.3rem 0 .75rem">
+        Status: <strong id="job-status-label">pending</strong>
+        <span id="job-time-estimate" style="margin-left:.75rem;color:#94a3b8" aria-live="polite">Elapsed: -- · Remaining: estimating...</span>
+      </p>
+
+      <!-- Real-Time Training Loss Graph -->
+      <div id="job-chart-container" style="margin:.75rem 0 1rem; background:#0a0f1d; border:1px solid #1e293b; border-radius:10px; padding:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem">
+          <div>
+            <span style="font-weight:600; font-size:.92rem; color:#f1f5f9">Real-time training loss</span>
+            <span style="font-size:.78rem; color:#94a3b8; margin-left:.5rem">Live Convergence Curve</span>
+          </div>
+          <div style="display:flex; gap:.75rem; align-items:center; font-size:.82rem">
+            <span id="chart-current-loss" style="color:#38bdf8; font-weight:600">Loss: --</span>
+            <span id="chart-min-loss" style="color:#4ade80; font-weight:600">Best: --</span>
+          </div>
+        </div>
+        <canvas id="job-loss-chart" width="800" height="180" style="width:100%; height:180px; display:block;"></canvas>
+      </div>
+
+      <pre id="job-log-box" class="log-box"></pre>
+    </div>
+  </div>
+  <!-- TAB 3 MODELS -->
+  <div class="tab-panel hidden" id="tab-panel-models">
+    <div class="card">
+      <h2 class="card-title">Registered Models</h2>
+      <div class="filter-row">
+        <input type="text" id="model-filter" placeholder="Filter by marker or strip..." class="form-input form-input-sm">
+        <label class="checkbox-label"><input type="checkbox" id="active-only-check"> Active only</label>
+      </div>
+      {% if models %}
+      <table class="data-table" id="models-table">
+        <thead><tr><th>ID</th><th>Strip</th><th>Marker</th><th>Algo</th><th>Ver</th><th>Val Acc</th><th>Val F1</th><th>MALE</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="models-tbody">
+          {% for m in models %}
+          {% set val = m.metrics.val if (m.metrics and m.metrics is mapping and 'val' in m.metrics) else m.metrics %}
+          <tr id="model-row-{{ m.model_id }}" class="model-row {% if m.is_active %}row-active{% endif %}">
+            <td class="mono small">{{ m.model_id }}</td>
+            <td><span class="badge badge-blue">{{ m.strip_type }}</span></td>
+            <td><strong>{{ m.marker }}</strong></td>
+            <td class="small">{{ m.algorithm }}</td>
+            <td class="small">v{{ m.version }}</td>
+            <td>{% if val and val is mapping and val.accuracy is defined %}{{ "%.1f%%"|format(val.accuracy*100) }}{% else %}—{% endif %}</td>
+            <td>{% if val and val is mapping and val.macro_f1 is defined %}{{ "%.3f"|format(val.macro_f1) }}{% else %}—{% endif %}</td>
+            <td>{% if val and val is mapping and val.mean_absolute_level_error is defined %}{{ "%.2f"|format(val.mean_absolute_level_error) }}{% else %}—{% endif %}</td>
+            <td>{% if m.is_active %}<span class="badge badge-success">Active</span>{% else %}<span class="badge badge-muted">Inactive</span>{% endif %}</td>
+            <td class="action-cell">
+              {% if not m.is_active %}
+              <button class="btn btn-sm btn-success activate-model-btn" data-mid="{{ m.model_id }}" data-marker="{{ m.marker }}" id="activate-btn-{{ m.model_id }}">Activate</button>
+              {% else %}
+              <button class="btn btn-sm btn-warning deactivate-model-btn" data-mid="{{ m.model_id }}" id="deactivate-btn-{{ m.model_id }}">Deactivate</button>
+              {% endif %}
+              <button class="btn btn-sm btn-outline view-metrics-btn" data-mid="{{ m.model_id }}" id="metrics-btn-{{ m.model_id }}">Metrics</button>
+              {% if not m.is_active %}
+              <button class="btn btn-sm btn-danger delete-model-btn" data-mid="{{ m.model_id }}" id="del-model-btn-{{ m.model_id }}">Delete</button>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty-state" id="models-empty">No trained models yet. Use the Training tab.</p>
+      {% endif %}
+    </div>
+    <div class="modal-overlay hidden" id="metrics-modal">
+      <div class="modal-box">
+        <div class="modal-header"><h3 id="metrics-modal-title">Model Metrics</h3><button class="modal-close" id="metrics-modal-close">x</button></div>
+        <div class="modal-body" id="metrics-modal-body" style="padding:1.25rem 1.5rem"></div>
+      </div>
+    </div>
+    <div class="modal-overlay hidden" id="activate-modal">
+      <div class="modal-box">
+        <div class="modal-header"><h3>Activate Model</h3><button class="modal-close" id="activate-modal-close">x</button></div>
+        <div class="modal-body"><p id="activate-modal-msg"></p>
+          <label class="checkbox-label" id="synth-override-row" style="display:none">
+            <input type="checkbox" id="synth-override-check"> I understand this is synthetic-only data
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-success" id="activate-confirm-btn">Confirm Activate</button>
+          <button class="btn btn-outline" id="activate-cancel-btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- TAB 4 JOBS -->
+  <div class="tab-panel hidden" id="tab-panel-jobs">
+    <div class="card">
+      <h2 class="card-title">Recent Training Jobs</h2>
+      <button class="btn btn-sm btn-outline" id="refresh-jobs-btn" style="margin-bottom:.75rem">Refresh</button>
+      <table class="data-table" id="jobs-table">
+        <thead><tr><th>Job ID</th><th>Strip</th><th>Marker</th><th>Algo</th><th>Status</th><th>Progress</th><th>Started</th><th>Model</th><th>Action</th></tr></thead>
+        <tbody id="jobs-tbody">
+          {% for j in jobs %}
+          <tr id="job-row-{{ j.job_id }}">
+            <td class="mono small">{{ j.job_id }}</td>
+            <td>{{ j.strip_type }}</td><td><strong>{{ j.marker }}</strong></td>
+            <td class="small">{{ j.algorithm }}</td>
+            <td id="job-status-col-{{ j.job_id }}">{% if j.status == 'completed' %}<span class="badge badge-success">done</span>
+                {% elif j.status == 'running'  %}<span class="badge badge-warning">running</span>
+                {% elif j.status == 'failed'   %}<span class="badge badge-danger">failed</span>
+                {% elif j.status == 'cancelled' %}<span class="badge badge-muted">cancelled</span>
+                {% else %}<span class="badge badge-muted">{{ j.status }}</span>{% endif %}</td>
+            <td><div class="mini-progress"><div style="width:{{ j.progress }}%"></div></div> <span class="small">{{ j.progress }}%</span></td>
+            <td class="text-muted small">{{ j.created_at[:16] if j.created_at else '' }}</td>
+            <td class="mono small">{{ j.model_id if j.model_id else '' }}</td>
+            <td>
+              <div style="display:flex; gap:.3rem; align-items:center">
+                <button class="btn btn-sm btn-secondary view-job-table-btn" data-jid="{{ j.job_id }}">View</button>
+                {% if j.status == 'running' or j.status == 'pending' or j.status == 'paused' %}
+                <button class="btn btn-sm btn-danger cancel-job-table-btn" data-jid="{{ j.job_id }}" id="stop-job-btn-{{ j.job_id }}">Stop</button>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not jobs %}<tr><td colspan="9" class="empty-state">No jobs yet.</td></tr>{% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<style>
+.ml-studio-page{max-width:1200px;margin:0 auto;padding:1.5rem;color:#f1f5f9}
+.page-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem}
+.page-title{font-size:2rem;font-weight:700;margin:0;color:#0f172a!important}
+.page-subtitle{color:#475569!important;margin:.25rem 0 0}
+.header-badges{display:flex;gap:.5rem;align-items:center}
+.tab-bar{display:flex;gap:.5rem;margin-bottom:1.5rem;border-bottom:2px solid #cbd5e1;padding-bottom:.5rem}
+.tab-btn{background:transparent;border:none;padding:.5rem 1rem;color:#475569;cursor:pointer;border-radius:8px 8px 0 0;font-size:.95rem;transition:all .2s;font-weight:500}
+.tab-btn:hover{color:#0f172a;background:rgba(108,99,255,.08)}
+.tab-btn.active{color:#4f46e5;background:rgba(108,99,255,.12);font-weight:600;border-bottom:2px solid #4f46e5}
+.tab-panel{display:none}.tab-panel.active{display:block}.hidden{display:none!important}
+.card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:1.5rem;margin-bottom:1.25rem;color:#f1f5f9}
+.card-title{font-size:1.15rem;font-weight:700;margin:0 0 1rem;color:#ffffff!important}
+.inline-form{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center}
+.form-row{display:grid;grid-template-columns:180px 1fr;gap:1rem;align-items:center;margin-bottom:.75rem}
+.form-row label{color:#cbd5e1;font-size:.9rem;font-weight:500}
+.form-input{background:#1e293b;border:1px solid #334155;color:#f8fafc!important;border-radius:8px;padding:.5rem .75rem;font-size:.9rem;outline:none}
+.form-input::placeholder{color:#64748b}
+.form-input:focus{border-color:#818cf8}
+.form-input-sm{max-width:260px}
+.form-msg{margin-top:.5rem;font-size:.85rem;min-height:1.2em}
+.form-msg.ok{color:#4ade80}.form-msg.err{color:#f87171}
+.form-actions{margin-top:1rem}
+.btn{border:none;border-radius:8px;padding:.5rem 1.1rem;cursor:pointer;font-size:.9rem;font-weight:500;transition:all .18s}
+.btn-primary{background:#6c63ff;color:#ffffff}.btn-success{background:#22c55e;color:#ffffff}
+.btn-warning{background:#f59e0b;color:#000000}.btn-danger{background:#ef4444;color:#ffffff}
+.btn-secondary{background:#334155;color:#f8fafc}.btn-outline{background:transparent;border:1px solid #475569;color:#e2e8f0}
+.btn:hover{filter:brightness(1.15);transform:translateY(-1px)}
+.btn-sm{padding:.3rem .7rem;font-size:.8rem;border-radius:6px}
+.badge{display:inline-block;padding:.2rem .55rem;border-radius:6px;font-size:.78rem;font-weight:600}
+.badge-blue{background:rgba(56,189,248,.18);color:#38bdf8;border:1px solid rgba(56,189,248,.35)}
+.badge-success{background:rgba(34,197,94,.18);color:#4ade80;border:1px solid rgba(34,197,94,.35)}
+.badge-warning{background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.35)}
+.badge-danger{background:rgba(239,68,68,.18);color:#f87171;border:1px solid rgba(239,68,68,.35)}
+.badge-muted{background:rgba(148,163,184,.15);color:#cbd5e1}
+.badge-info{background:rgba(56,189,248,.15);color:#38bdf8}
+.data-table{width:100%;border-collapse:collapse;font-size:.88rem;margin-top:.75rem;color:#f1f5f9}
+.data-table th{color:#94a3b8;font-weight:600;text-align:left;padding:.6rem .75rem;border-bottom:1px solid #334155}
+.data-table td{padding:.65rem .75rem;border-bottom:1px solid #1e293b;vertical-align:middle;color:#e2e8f0}
+.data-table td strong{color:#ffffff}
+.data-table tr:hover td{background:rgba(108,99,255,.08)}
+.row-active td{border-left:3px solid #22c55e}
+.action-cell{display:flex;gap:.4rem;flex-wrap:wrap}
+.empty-state{color:#94a3b8;font-style:italic;text-align:center;padding:2rem}
+.text-muted{color:#94a3b8}.small{font-size:.82rem}.mono{font-family:monospace;color:#a5b4fc}
+.train-form{max-width:600px}
+.checkbox-group{display:flex;flex-direction:column;gap:.4rem;max-height:200px;overflow-y:auto;color:#cbd5e1}
+.checkbox-label{display:flex;align-items:center;gap:.5rem;font-size:.88rem;cursor:pointer;color:#e2e8f0}
+.progress-bar-wrap{display:flex;align-items:center;gap:1rem;margin:1rem 0}
+.progress-bar-track{flex:1;height:12px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden}
+.progress-bar-fill{height:100%;background:linear-gradient(90deg,#6c63ff,#22c55e);border-radius:99px;transition:width .4s}
+.mini-progress{display:inline-block;width:60px;height:6px;background:rgba(255,255,255,.1);border-radius:99px;overflow:hidden;vertical-align:middle}
+.mini-progress div{height:100%;background:#818cf8;border-radius:99px}
+.log-box{background:#050811;border:1px solid #1e293b;border-radius:8px;padding:1rem;font-size:.82rem;font-family:monospace;color:#86efac;max-height:260px;overflow-y:auto;white-space:pre-wrap}
+.filter-row{display:flex;gap:1rem;align-items:center;margin-bottom:1rem;color:#cbd5e1}
+.metrics-content{font-size:.88rem;color:#e2e8f0}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:flex;align-items:center;justify-content:center}
+.modal-box{background:#111827;border:1px solid #334155;border-radius:14px;width:90%;max-width:680px;max-height:80vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.8);color:#f1f5f9}
+.modal-header{display:flex;justify-content:space-between;align-items:center;padding:1.25rem 1.5rem;border-bottom:1px solid #334155}
+.modal-header h3{margin:0;font-size:1.15rem;color:#ffffff}
+.modal-close{background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1.2rem}
+.modal-close:hover{color:#ffffff}
+.modal-footer{display:flex;gap:.75rem;padding:1rem 1.5rem;border-top:1px solid #334155}
+.cm-table{border-collapse:collapse;font-size:.8rem;color:#e2e8f0}
+.cm-table td{padding:.25rem .5rem;border:1px solid #334155;text-align:center}
+.cm-diag{background:rgba(108,99,255,.25);color:#ffffff;font-weight:600}
+.top-ft{list-style:none;padding:0;margin:0;color:#cbd5e1}
+.top-ft li{display:flex;justify-content:space-between;padding:.3rem 0;border-bottom:1px solid #334155}
+/* Upload panel */
+.upload-panel-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+.utab-bar{display:flex;gap:.4rem;margin-bottom:1rem;border-bottom:1px solid #334155;padding-bottom:.5rem}
+.utab{background:transparent;border:none;padding:.4rem .9rem;color:#94a3b8;cursor:pointer;border-radius:6px 6px 0 0;font-size:.88rem;transition:all .18s}
+.utab:hover{color:#f8fafc;background:rgba(108,99,255,.1)}
+.utab.active{color:#818cf8;font-weight:600;border-bottom:2px solid #818cf8}
+.utab-panel{display:none}.utab-panel.active{display:block}
+.upload-drop{display:flex;align-items:center;justify-content:center;min-height:90px;border:2px dashed #475569;border-radius:10px;color:#cbd5e1;font-size:.9rem;cursor:pointer;padding:1.25rem;text-align:center;margin-bottom:.75rem;transition:border-color .18s}
+.upload-drop:hover,.upload-drop.drag-over{border-color:#818cf8;color:#818cf8}
+.upload-opts-row{display:flex;gap:1rem;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;color:#cbd5e1}
+</style>
+<script>
+(function(){
+  // Tab nav with persistence
+  function switchTab(tabName){
+    document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+    document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');p.classList.add('hidden');});
+    var btn = document.getElementById('tab-' + tabName);
+    var panel = document.getElementById('tab-panel-' + tabName);
+    if(btn) btn.classList.add('active');
+    if(panel){ panel.classList.remove('hidden'); panel.classList.add('active'); }
+    try{ localStorage.setItem('ml_studio_tab', tabName); }catch(e){}
+    if(tabName === 'training' && window._redrawLossChart){
+      setTimeout(window._redrawLossChart, 60);
+    }
+  }
+
+  document.querySelectorAll('.tab-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){ switchTab(btn.dataset.tab); });
+  });
+
+  // Restore active tab
+  try {
+    var savedTab = localStorage.getItem('ml_studio_tab');
+    if(savedTab && document.getElementById('tab-' + savedTab)){
+      switchTab(savedTab);
+    }
+  } catch(e){}
+  function setMsg(el,text,isErr){if(!el)return;el.textContent=text;el.className='form-msg '+(isErr?'err':'ok');}
+  async function api(url,opts){
+    opts=opts||{};
+    if(!opts.headers)opts.headers={'Content-Type':'application/json'};
+    var r=await fetch(url,opts);
+    var body=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(body.error||'HTTP '+r.status);
+    return body;
+  }
+  // Active badge
+  (async function(){try{var d=await api('/api/training/models?active_only=true');var n=(d.models||[]).length;var el=document.getElementById('active-model-count');if(el)el.textContent=n+' Active Model'+(n!==1?'s':'');}catch(e){}})();
+  // Create dataset
+  var cdForm=document.getElementById('create-dataset-form');
+  if(cdForm)cdForm.addEventListener('submit',async function(e){
+    e.preventDefault();var msg=document.getElementById('create-ds-msg');var btn=document.getElementById('create-ds-btn');
+    btn.disabled=true;btn.textContent='Creating...';
+    try{var b=await api('/api/datasets',{method:'POST',body:JSON.stringify({name:document.getElementById('ds-name').value.trim(),strip_type:document.getElementById('ds-strip-type').value,description:document.getElementById('ds-desc').value.trim()})});
+    setMsg(msg,'Created '+b.dataset_id,false);cdForm.reset();setTimeout(()=>location.reload(),1200);}
+    catch(err){setMsg(msg,err.message,true);}finally{btn.disabled=false;btn.textContent='Create';}
+  });
+  // Delete dataset
+  document.querySelectorAll('.delete-ds-btn').forEach(function(btn){
+    btn.addEventListener('click',async function(){
+      if(!confirm('Delete dataset '+btn.dataset.dsid+'?'))return;
+      try{await api('/api/datasets/'+btn.dataset.dsid,{method:'DELETE'});var row=document.getElementById('ds-row-'+btn.dataset.dsid);if(row)row.remove();}
+      catch(err){alert('Delete failed: '+err.message);}
+    });
+  });
+  // Export CSV — BUG-003 fix: use fetch so errors surface in-page
+  document.querySelectorAll('.export-ds-btn').forEach(function(btn){
+    btn.addEventListener('click',async function(){
+      var dsid=btn.dataset.dsid;
+      btn.disabled=true;btn.textContent='Exporting...';
+      try{
+        var r=await fetch('/api/datasets/'+dsid+'/export/csv');
+        if(!r.ok){
+          var j=await r.json().catch(()=>({}));
+          alert('Export failed: '+(j.error||'HTTP '+r.status));
+          return;
+        }
+        var blob=await r.blob();
+        var a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        var cd=r.headers.get('Content-Disposition')||'';
+        var fnMatch=cd.match(/filename="?([^"]+)"?/);
+        a.download=fnMatch?fnMatch[1]:(dsid+'_labels.csv');
+        document.body.appendChild(a);a.click();a.remove();
+      }catch(err){alert('Export error: '+err.message);}
+      finally{btn.disabled=false;btn.textContent='Export CSV';}
+    });
+  });
+  // Open annotation
+  document.querySelectorAll('.open-annotate-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){window.location.href='/annotation?dataset_id='+btn.dataset.dsid;});
+  });
+
+  // =========================================================
+  // UPLOAD PANEL — BUG-001 / BUG-002 / BUG-005 / BUG-008 fix
+  // =========================================================
+  var uploadPanel=document.getElementById('upload-panel');
+  var uploadDsId=document.getElementById('upload-ds-id');
+  var uploadDsName=document.getElementById('upload-ds-name');
+
+  // Open panel when Upload Photos clicked
+  document.querySelectorAll('.upload-photos-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      uploadDsId.value=btn.dataset.dsid;
+      uploadDsName.textContent=btn.dataset.dsname||btn.dataset.dsid;
+      uploadPanel.classList.remove('hidden');
+      uploadPanel.scrollIntoView({behavior:'smooth',block:'start'});
+    });
+  });
+  document.getElementById('upload-panel-close')&&document.getElementById('upload-panel-close').addEventListener('click',function(){
+    uploadPanel.classList.add('hidden');
+  });
+
+  // Sub-tab switching inside upload panel
+  document.querySelectorAll('.utab').forEach(function(tab){
+    tab.addEventListener('click',function(){
+      document.querySelectorAll('.utab').forEach(function(t){t.classList.remove('active');});
+      document.querySelectorAll('.utab-panel').forEach(function(p){p.classList.remove('active');p.classList.add('hidden');});
+      tab.classList.add('active');
+      var p=document.getElementById('utab-panel-'+tab.dataset.utab);
+      if(p){p.classList.remove('hidden');p.classList.add('active');}
+    });
+  });
+
+  // ---- Bulk photo upload ----
+  var bulkInput=document.getElementById('bulk-file-input');
+  var folderInput=document.getElementById('folder-file-input');
+  var bulkBtn=document.getElementById('bulk-upload-btn');
+  var bulkLabel=document.getElementById('bulk-drop-label');
+  var progressWrap=document.getElementById('bulk-progress-wrap');
+  var progressBar=document.getElementById('bulk-progress-bar');
+  var progressLbl=document.getElementById('bulk-progress-label');
+  var errorList=document.getElementById('bulk-error-list');
+  var pendingFiles=[];
+
+  function onFilesSelected(files){
+    pendingFiles=Array.from(files).filter(function(f){
+      return f.type==='image/jpeg'||f.type==='image/png'||
+             f.name.match(/\.(jpg|jpeg|png)$/i);
+    });
+    if(pendingFiles.length){
+      bulkLabel.textContent=pendingFiles.length+' file'+(pendingFiles.length!==1?'s':'')+' selected';
+      bulkBtn.disabled=false;
+    } else {
+      bulkLabel.textContent='No valid image files found';
+      bulkBtn.disabled=true;
+    }
+    progressWrap.classList.add('hidden');
+    errorList.innerHTML='';
+  }
+  if(bulkInput)bulkInput.addEventListener('change',function(){onFilesSelected(this.files);});
+  if(folderInput)folderInput.addEventListener('change',function(){onFilesSelected(this.files);});
+
+  // Drag and drop
+  var dropZone=document.getElementById('bulk-drop-zone');
+  if(dropZone){
+    ['dragenter','dragover'].forEach(function(ev){
+      dropZone.addEventListener(ev,function(e){e.preventDefault();dropZone.classList.add('drag-over');});
+    });
+    ['dragleave','drop'].forEach(function(ev){
+      dropZone.addEventListener(ev,function(e){
+        e.preventDefault();dropZone.classList.remove('drag-over');
+        if(ev==='drop'&&e.dataTransfer.files.length)onFilesSelected(e.dataTransfer.files);
+      });
+    });
+  }
+
+  // Upload in batches of 5 (BUG-002: parallel batched)
+  async function uploadBatch(dsId,batch,isSynthetic){
+    var fd=new FormData();
+    batch.forEach(function(f){fd.append('images',f);});
+    fd.append('is_synthetic',isSynthetic?'1':'0');
+    var r=await fetch('/api/datasets/'+dsId+'/samples/bulk',{method:'POST',body:fd});
+    var j=await r.json().catch(()=>({}));
+    return j;
+  }
+
+  if(bulkBtn)bulkBtn.addEventListener('click',async function(){
+    var dsId=uploadDsId.value;
+    if(!dsId||!pendingFiles.length)return;
+    var isSynth=(document.getElementById('bulk-is-synthetic')||{checked:false}).checked;
+    var BATCH=5;
+    var total=pendingFiles.length;
+    var done=0;var errCount=0;var errLines=[];
+    progressWrap.classList.remove('hidden');
+    errorList.innerHTML='';
+    bulkBtn.disabled=true;bulkBtn.textContent='Uploading...';
+
+    for(var i=0;i<total;i+=BATCH){
+      var batch=pendingFiles.slice(i,i+BATCH);
+      try{
+        var result=await uploadBatch(dsId,batch,isSynth);
+        done+=result.uploaded||0;
+        (result.failed||[]).forEach(function(fe){
+          errCount++;errLines.push(fe.filename+': '+fe.error);
+        });
+      }catch(e){
+        errCount+=batch.length;
+        batch.forEach(function(f){errLines.push(f.name+': network error');});
+      }
+      var processed=Math.min(i+BATCH,total);
+      progressBar.style.width=Math.round(processed/total*100)+'%';
+      progressLbl.textContent=processed+' / '+total+(errCount?' ('+errCount+' failed)':'');
+    }
+    bulkBtn.textContent='Upload Selected Files';
+    bulkBtn.disabled=false;
+    if(errLines.length)errorList.innerHTML='<b>Failures:</b><br>'+errLines.join('<br>');
+    // Refresh sample counts without full reload (BUG-007)
+    await refreshDatasetCounts();
+    progressLbl.textContent='Done — '+done+' uploaded'+(errCount?' | '+errCount+' failed':'');
+  });
+
+  // ---- ZIP import ----
+  var zipBtn=document.getElementById('zip-upload-btn');
+  if(zipBtn)zipBtn.addEventListener('click',async function(){
+    var dsId=uploadDsId.value;
+    var zipInput=document.getElementById('zip-file-input');
+    if(!dsId){alert('Open a dataset first');return;}
+    if(!zipInput||!zipInput.files.length){alert('Select a ZIP file first');return;}
+    var result=document.getElementById('zip-result');
+    zipBtn.disabled=true;zipBtn.textContent='Importing...';
+    setMsg(result,'Uploading ZIP, please wait...  ',false);
+    try{
+      var fd=new FormData();
+      fd.append('zip_file',zipInput.files[0]);
+      fd.append('is_synthetic',(document.getElementById('zip-is-synthetic')||{checked:false}).checked?'1':'0');
+      var r=await fetch('/api/datasets/'+dsId+'/import/zip',{method:'POST',body:fd});
+      var j=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(j.error||'HTTP '+r.status);
+      var msg='Imported '+j.uploaded+' images'+(j.labelled?' and '+j.labelled+' labels':'');
+      if((j.failed||[]).length)msg+=' | '+j.failed.length+' failed';
+      setMsg(result,msg,false);
+      await refreshDatasetCounts();
+    }catch(err){setMsg(result,err.message,true);}
+    finally{zipBtn.disabled=false;zipBtn.textContent='Import ZIP';}
+  });
+
+  // ---- Roboflow YOLO ZIP import ----
+  var yoloBtn=document.getElementById('yolo-upload-btn');
+  if(yoloBtn)yoloBtn.addEventListener('click',async function(){
+    var dsId=uploadDsId.value;
+    var yoloInput=document.getElementById('yolo-file-input');
+    if(!dsId){alert('Open a dataset first');return;}
+    if(!yoloInput||!yoloInput.files.length){alert('Select a Roboflow ZIP file first');return;}
+    var result=document.getElementById('yolo-result');
+    yoloBtn.disabled=true;yoloBtn.textContent='Extracting & Importing...';
+    setMsg(result,'Uploading and validating Roboflow YOLO archive...',false);
+    try{
+      var fd=new FormData();
+      fd.append('file',yoloInput.files[0]);
+      var r=await fetch('/api/datasets/'+dsId+'/import/yolo_zip',{method:'POST',body:fd});
+      var j=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(j.error||'HTTP '+r.status);
+      var msg='Successfully imported '+j.imported_images+' images and '+j.imported_labels+' label files across ['+(j.splits||[]).join(', ')+'] splits.';
+      setMsg(result,msg,false);
+      await refreshDatasetCounts();
+    }catch(err){setMsg(result,err.message,true);}
+    finally{yoloBtn.disabled=false;yoloBtn.textContent='Import Roboflow YOLO ZIP';}
+  });
+
+  // ---- Labels CSV import ----
+  var lcBtn=document.getElementById('labels-csv-btn');
+  if(lcBtn)lcBtn.addEventListener('click',async function(){
+    var dsId=uploadDsId.value;
+    var lcInput=document.getElementById('labels-csv-input');
+    if(!dsId){alert('Open a dataset first');return;}
+    if(!lcInput||!lcInput.files.length){alert('Select a CSV file first');return;}
+    var result=document.getElementById('labels-csv-result');
+    lcBtn.disabled=true;lcBtn.textContent='Importing...';
+    try{
+      var fd=new FormData();
+      fd.append('csv_file',lcInput.files[0]);
+      var r=await fetch('/api/datasets/'+dsId+'/import/labels_csv',{method:'POST',body:fd});
+      var j=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(j.error||'HTTP '+r.status);
+      setMsg(result,'Saved '+j.saved+' labels ('+j.skipped+' skipped)',j.errors&&j.errors.length>0);
+      await refreshDatasetCounts();
+    }catch(err){setMsg(result,err.message,true);}
+    finally{lcBtn.disabled=false;lcBtn.textContent='Import Labels CSV';}
+  });
+
+  // Refresh dataset sample/label counts (BUG-007 fix — no full page reload)
+  async function refreshDatasetCounts(){
+    try{
+      var d=await api('/api/datasets');
+      (d.datasets||[]).forEach(function(ds){
+        var sc=document.getElementById('ds-scount-'+ds.dataset_id);
+        var lc=document.getElementById('ds-lcount-'+ds.dataset_id);
+        if(sc)sc.textContent=ds.sample_count||0;
+        if(lc)lc.textContent=ds.label_count||0;
+        // Also refresh training checkbox labels
+        var cbLabel=document.getElementById('train-ds-'+ds.dataset_id);
+        if(cbLabel&&cbLabel.parentElement){
+          cbLabel.dataset.yoloReady=ds.yolo_ready?'true':'false';
+          cbLabel.parentElement.lastChild.textContent=
+            ' '+ds.name+' ('+ds.strip_type+', '+(ds.sample_count||0)+' samples)';
+        }
+      });
+      if(typeof updateDatasetTrainingMode==='function')updateDatasetTrainingMode();
+    }catch(e){}
+  }
+
+  // Training form
+  var pollingInterval=null;
+  var trainAlgoSelect=document.getElementById('train-algo');
+  var trainStripSelect=document.getElementById('train-strip');
+  var trainMarkerSelect=document.getElementById('train-marker');
+  var trainDatasetInputs=[].slice.call(document.querySelectorAll('input[name="ds"]'));
+  var trainDatasetHelp=document.getElementById('train-dataset-help');
+  function updateTrainingMarkers(){
+    if(!trainStripSelect||!trainMarkerSelect)return;
+    var selectedOption=null;
+    [].slice.call(trainMarkerSelect.options).forEach(function(option){
+      var group=option.parentElement;
+      var visible=!group.dataset.stripType||group.dataset.stripType===trainStripSelect.value;
+      option.hidden=!visible;
+      if(visible&&!selectedOption)selectedOption=option;
+      if(visible&&option.value===trainMarkerSelect.value)selectedOption=option;
+    });
+    if(selectedOption)trainMarkerSelect.value=selectedOption.value;
+  }
+  function updateDatasetTrainingMode(){
+    var isYolo=trainAlgoSelect&&trainAlgoSelect.value==='yolov8_nano';
+    var readyCount=0;
+    trainDatasetInputs.forEach(function(input){
+      var isReady=input.dataset.yoloReady==='true';
+      if(isReady)readyCount++;
+      input.disabled=Boolean(isYolo&&!isReady);
+      if(isYolo&&!isReady)input.checked=false;
+    });
+    if(isYolo){
+      var checked=trainDatasetInputs.filter(function(input){return input.checked&&input.dataset.yoloReady==='true';});
+      checked.slice(1).forEach(function(input){input.checked=false;});
+      if(trainDatasetHelp){
+        trainDatasetHelp.textContent=readyCount
+          ? 'YOLO training uses exactly one dataset imported from a Roboflow YOLO ZIP.'
+          : 'Import a Roboflow YOLO ZIP into a dataset before starting YOLO training.';
+      }
+    }else if(trainDatasetHelp){
+      trainDatasetHelp.textContent='Select one or more datasets for pad classification training.';
+    }
+  }
+  trainDatasetInputs.forEach(function(input){
+    input.addEventListener('change',function(){
+      if(trainAlgoSelect&&trainAlgoSelect.value==='yolov8_nano'&&input.checked){
+        trainDatasetInputs.forEach(function(other){
+          if(other!==input)other.checked=false;
+        });
+      }
+    });
+  });
+  if(trainAlgoSelect){
+    trainAlgoSelect.addEventListener('change',function(){
+      var isYolo = this.value === 'yolov8_nano';
+      var rowMarker = document.getElementById('row-train-marker');
+      var rowEpochs = document.getElementById('row-train-epochs');
+      var rowEst = document.getElementById('row-train-estimators');
+      var rowMin = document.getElementById('row-train-min-per-class');
+      if(rowMarker) rowMarker.style.display = isYolo ? 'none' : 'flex';
+      if(rowEpochs) rowEpochs.style.display = isYolo ? 'flex' : 'none';
+      if(rowEst) rowEst.style.display = isYolo ? 'none' : 'flex';
+      if(rowMin) rowMin.style.display = isYolo ? 'none' : 'flex';
+      updateDatasetTrainingMode();
+    });
+    updateDatasetTrainingMode();
+  }
+  if(trainStripSelect){
+    trainStripSelect.addEventListener('change',updateTrainingMarkers);
+    updateTrainingMarkers();
+  }
+
+  var tForm=document.getElementById('train-form');
+  if(tForm)tForm.addEventListener('submit',async function(e){
+    e.preventDefault();var msg=document.getElementById('train-msg');var btn=document.getElementById('train-submit-btn');
+    var dsIds=[].slice.call(document.querySelectorAll('input[name="ds"]:checked')).map(function(i){return i.value;});
+    if(!dsIds.length){setMsg(msg,'Select at least one dataset',true);return;}
+    if(trainAlgoSelect&&trainAlgoSelect.value==='yolov8_nano'&&dsIds.length!==1){
+      setMsg(msg,'Select exactly one dataset for YOLO training',true);return;
+    }
+    btn.disabled=true;btn.textContent='Launching...';
+    try{
+      var epochsVal = document.getElementById('train-epochs') ? parseInt(document.getElementById('train-epochs').value) : 15;
+      var r=await api('/api/training/jobs',{method:'POST',body:JSON.stringify({
+        strip_type:document.getElementById('train-strip').value,
+        marker:document.getElementById('train-marker').value,
+        algorithm:document.getElementById('train-algo').value,
+        epochs:epochsVal,
+        n_estimators:parseInt(document.getElementById('train-estimators').value),
+        min_per_class:parseInt(document.getElementById('train-min-per-class').value),
+        dataset_ids:dsIds
+      })});
+    setMsg(msg,'Job '+r.job_id+' launched',false);startPolling(r.job_id);}
+    catch(err){setMsg(msg,err.message,true);}finally{btn.disabled=false;btn.textContent='Start Training';}
+  });
+  // Real-time Loss Chart
+  var currentLossData = { labels: [], values: [] };
+
+  function formatDuration(seconds){
+    seconds = Math.max(0, Math.floor(seconds));
+    var hours = Math.floor(seconds / 3600);
+    var minutes = Math.floor((seconds % 3600) / 60);
+    var remainingSeconds = seconds % 60;
+    return hours
+      ? hours + 'h ' + minutes + 'm'
+      : minutes + 'm ' + remainingSeconds + 's';
+  }
+
+  function parseJobTimestamp(value){
+    if(!value) return NaN;
+    var timestamp = value.endsWith('Z') ? value : value + 'Z';
+    return new Date(timestamp).getTime();
+  }
+
+  function updateTrainingTimer(job, now){
+    var timer = document.getElementById('job-time-estimate');
+    if(!timer) return;
+
+    var startedAt = parseJobTimestamp(job.created_at);
+    var elapsed = Number.isFinite(startedAt) ? Math.max(0, (now - startedAt) / 1000) : null;
+    var elapsedText = elapsed === null ? 'Elapsed: --' : 'Elapsed: ' + formatDuration(elapsed);
+    var progress = Number(job.progress) || 0;
+
+    if(job.status === 'completed'){
+      timer.textContent = elapsedText + ' · Complete';
+      return;
+    }
+    if(job.status === 'paused'){
+      timer.textContent = elapsedText + ' · Remaining: paused';
+      return;
+    }
+    if(job.status === 'failed' || job.status === 'cancelled'){
+      timer.textContent = elapsedText + ' · Remaining: stopped';
+      return;
+    }
+
+    var etaText = 'Remaining: estimating...';
+    if(elapsed !== null && progress > 0){
+      var etaSeconds = elapsed * (100 - progress) / progress;
+      if(Number.isFinite(etaSeconds) && etaSeconds >= 0){
+        etaText = 'Remaining: ~' + formatDuration(etaSeconds);
+      }
+    }
+    timer.textContent = elapsedText + ' · ' + etaText;
+  }
+
+  function parseLossHistory(logText){
+    if(!logText) return { labels: [], values: [] };
+    var lines = logText.split('\n');
+    var labels = [];
+    var values = [];
+    lines.forEach(function(line){
+      var mLoss = line.match(/loss:\s*(-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)/i);
+      if(mLoss){
+        var val = parseFloat(mLoss[1]);
+        if(!isNaN(val)){
+          var mEp = line.match(/Epoch\s*(\d+)/i);
+          var mBt = line.match(/batch\s*(\d+)/i);
+          var lbl = '';
+          if(mEp && mBt) lbl = 'E' + mEp[1] + ' b' + mBt[1];
+          else if(mEp) lbl = 'E' + mEp[1];
+          else lbl = '#' + (values.length + 1);
+          labels.push(lbl);
+          values.push(val);
+        }
+      }
+    });
+    return { labels: labels, values: values };
+  }
+
+  function renderLossChart(canvasId, lossData){
+    currentLossData = lossData || { labels: [], values: [] };
+    var canvas = document.getElementById(canvasId);
+    if(!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    var width = rect.width || 760;
+    var height = 180;
+
+    if(canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)){
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+    }
+
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
+
+    var vals = lossData.values || [];
+    var labels = lossData.labels || [];
+
+    var currentEl = document.getElementById('chart-current-loss');
+    var minEl = document.getElementById('chart-min-loss');
+
+    if(vals.length === 0){
+      ctx.fillStyle = '#64748b';
+      ctx.font = '12px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Waiting for training steps... (loss curve updates live every ~8s)', width / 2, height / 2);
+      if(currentEl) currentEl.textContent = 'Loss: --';
+      if(minEl) minEl.textContent = 'Best: --';
+      ctx.restore();
+      return;
+    }
+
+    var lastVal = vals[vals.length - 1];
+    var minVal = Math.min.apply(null, vals);
+    var maxVal = Math.max.apply(null, vals);
+    if(currentEl) currentEl.textContent = 'Loss: ' + lastVal.toFixed(4);
+    if(minEl) minEl.textContent = 'Best: ' + minVal.toFixed(4);
+
+    var padL = 50;
+    var padR = 20;
+    var padT = 20;
+    var padB = 30;
+    var plotW = Math.max(10, width - padL - padR);
+    var plotH = Math.max(10, height - padT - padB);
+
+    var range = maxVal - minVal;
+    if(range < 0.0001) range = 0.01;
+    var yMin = Math.max(0, minVal - range * 0.15);
+    var yMax = maxVal + range * 0.15;
+    var yRange = yMax - yMin;
+
+    // Horizontal grid lines
+    var gridSteps = 3;
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1;
+    ctx.font = '10px monospace';
+    ctx.fillStyle = '#64748b';
+    ctx.textAlign = 'right';
+
+    for(var g = 0; g <= gridSteps; g++){
+      var gy = padT + (plotH / gridSteps) * g;
+      var gval = yMax - (yRange / gridSteps) * g;
+      ctx.beginPath();
+      ctx.moveTo(padL, gy);
+      ctx.lineTo(width - padR, gy);
+      ctx.stroke();
+      ctx.fillText(gval.toFixed(3), padL - 8, gy + 3);
+    }
+
+    // Points calculation
+    var pts = [];
+    for(var i = 0; i < vals.length; i++){
+      var x = padL + (vals.length === 1 ? plotW / 2 : (i / (vals.length - 1)) * plotW);
+      var y = padT + plotH - ((vals[i] - yMin) / yRange) * plotH;
+      pts.push({ x: x, y: y, val: vals[i], lbl: labels[i] || '' });
+    }
+
+    // Gradient fill under line
+    if(pts.length > 1){
+      var grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
+      grad.addColorStop(0, 'rgba(99, 102, 241, 0.35)');
+      grad.addColorStop(1, 'rgba(99, 102, 241, 0.0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, padT + plotH);
+      for(var p = 0; p < pts.length; p++){
+        ctx.lineTo(pts[p].x, pts[p].y);
+      }
+      ctx.lineTo(pts[pts.length - 1].x, padT + plotH);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Stroke line
+    ctx.strokeStyle = '#818cf8';
+    ctx.lineWidth = 2.2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for(var j = 0; j < pts.length; j++){
+      if(j === 0) ctx.moveTo(pts[j].x, pts[j].y);
+      else ctx.lineTo(pts[j].x, pts[j].y);
+    }
+    ctx.stroke();
+
+    // Data points
+    for(var k = 0; k < pts.length; k++){
+      ctx.beginPath();
+      ctx.arc(pts[k].x, pts[k].y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = (k === pts.length - 1) ? '#4ade80' : '#818cf8';
+      ctx.fill();
+    }
+
+    // X-axis labels (up to 6)
+    ctx.fillStyle = '#64748b';
+    ctx.textAlign = 'center';
+    ctx.font = '10px monospace';
+    var step = Math.max(1, Math.floor(pts.length / 6));
+    for(var l = 0; l < pts.length; l++){
+      if(l % step === 0 || l === pts.length - 1){
+        ctx.fillText(pts[l].lbl, pts[l].x, height - 10);
+      }
+    }
+
+    ctx.restore();
+  }
+
+  window._redrawLossChart = function(){
+    renderLossChart('job-loss-chart', currentLossData);
+  };
+  window.addEventListener('resize', window._redrawLossChart);
+
+  function startPolling(jobId){
+    var panel=document.getElementById('job-progress-panel');
+    var idL=document.getElementById('job-progress-id');
+    var bar=document.getElementById('job-progress-bar');
+    var pct=document.getElementById('job-progress-pct');
+    var status=document.getElementById('job-status-label');
+    var logBox=document.getElementById('job-log-box');
+    var cancelBtn=document.getElementById('cancel-training-btn');
+    var pauseBtn=document.getElementById('pause-training-btn');
+
+    if(!panel)return;
+    panel.classList.remove('hidden');
+    idL.textContent=jobId;
+    try{ localStorage.setItem('active_training_job_id', jobId); }catch(e){}
+
+    if(pollingInterval)clearInterval(pollingInterval);
+
+    async function pollTick(){
+      try{
+        var j=await api('/api/training/jobs/'+jobId);
+        var p=j.progress||0;
+        if(bar) bar.style.width=p+'%';
+        if(pct) pct.textContent=p+'%';
+        if(status) status.textContent=j.status;
+        updateTrainingTimer(j, Date.now());
+        if(pauseBtn){
+          var isYolo = j.algorithm === 'yolov8_nano';
+          var canPause = j.status === 'running';
+          var canResume = j.status === 'paused';
+          pauseBtn.style.display = isYolo && (canPause || canResume) ? '' : 'none';
+          pauseBtn.textContent = canResume ? 'Resume Training' : 'Pause Training';
+          pauseBtn.disabled = false;
+        }
+        if(logBox){
+          logBox.textContent=j.log_output||'';
+          logBox.scrollTop=logBox.scrollHeight;
+        }
+
+        // Render real-time loss chart
+        var lossData = parseLossHistory(j.log_output||'');
+        renderLossChart('job-loss-chart', lossData);
+
+        if(j.status==='completed'||j.status==='failed'||j.status==='cancelled'){
+          if(pollingInterval) clearInterval(pollingInterval);
+          if(cancelBtn) cancelBtn.style.display = 'none';
+        } else {
+          if(cancelBtn) cancelBtn.style.display = '';
+        }
+      }catch(e){}
+    }
+
+    pollTick();
+    pollingInterval=setInterval(pollTick, 2000);
+  }
+
+  var pauseTrainingBtn = document.getElementById('pause-training-btn');
+  if(pauseTrainingBtn){
+    pauseTrainingBtn.addEventListener('click', async function(){
+      var idEl = document.getElementById('job-progress-id');
+      var statusEl = document.getElementById('job-status-label');
+      var jobId = idEl ? idEl.textContent.trim() : '';
+      var isPaused = statusEl && statusEl.textContent.trim() === 'paused';
+      if(!jobId) return;
+      pauseTrainingBtn.disabled = true;
+      pauseTrainingBtn.textContent = isPaused ? 'Resuming...' : 'Pausing...';
+      try{
+        await api('/api/training/jobs/' + jobId + (isPaused ? '/resume' : '/pause'), {method:'POST'});
+        if(statusEl) statusEl.textContent = isPaused ? 'running' : 'paused';
+      }catch(err){
+        alert('Could not ' + (isPaused ? 'resume' : 'pause') + ' training: ' + err.message);
+      }finally{
+        pauseTrainingBtn.disabled = false;
+      }
+    });
+  }
+
+  // Close / Hide button for Job Progress Panel
+  var closeProgressBtn = document.getElementById('close-progress-btn');
+  if(closeProgressBtn){
+    closeProgressBtn.addEventListener('click', function(){
+      var panel = document.getElementById('job-progress-panel');
+      if(panel) panel.classList.add('hidden');
+    });
+  }
+
+  // Stop / Cancel running training job
+  var cancelBtn = document.getElementById('cancel-training-btn');
+  if(cancelBtn){
+    cancelBtn.addEventListener('click', async function(){
+      var idL = document.getElementById('job-progress-id');
+      var jobId = idL ? idL.textContent.trim() : null;
+      if(!jobId) return;
+      if(!confirm('Are you sure you want to stop this training process?')) return;
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = 'Stopping...';
+      try {
+        await api('/api/training/jobs/' + jobId + '/cancel', {method: 'POST'});
+        var status = document.getElementById('job-status-label');
+        if(status) status.textContent = 'cancelled';
+        if(pollingInterval) clearInterval(pollingInterval);
+      } catch(err) {
+        alert('Failed to stop job: ' + err.message);
+      } finally {
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Stop Training';
+      }
+    });
+  }
+
+  // Stop button from the Jobs table
+  document.querySelectorAll('.cancel-job-table-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      var jid = btn.dataset.jid;
+      if(!confirm('Stop job ' + jid + '?')) return;
+      btn.disabled = true;
+      btn.textContent = 'Stopping...';
+      try {
+        await api('/api/training/jobs/' + jid + '/cancel', {method: 'POST'});
+        btn.parentElement.innerHTML = '<span class="text-muted small">—</span>';
+        var col = document.getElementById('job-status-col-' + jid);
+        if(col) col.innerHTML = '<span class="badge badge-muted">cancelled</span>';
+      } catch(err) {
+        alert('Failed: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = 'Stop';
+      }
+    });
+  });
+
+  // View button from the Jobs table
+  function attachViewJobListeners(){
+    document.querySelectorAll('.view-job-table-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var jid = btn.dataset.jid;
+        if(!jid) return;
+        switchTab('training');
+        startPolling(jid);
+        window.scrollTo({ top: 300, behavior: 'smooth' });
+      });
+    });
+  }
+  attachViewJobListeners();
+
+  // Resume active training job if page is refreshed
+  async function checkActiveJobOnLoad(){
+    var savedJobId = null;
+    try{ savedJobId = localStorage.getItem('active_training_job_id'); }catch(e){}
+    try{
+      var res = await api('/api/training/jobs');
+      var jobs = res.jobs || [];
+      var runningJob = jobs.find(function(j){ return j.status === 'running' || j.status === 'pending' || j.status === 'paused'; });
+      var targetId = runningJob ? runningJob.job_id : savedJobId;
+      if(targetId){
+        var j = await api('/api/training/jobs/' + targetId).catch(function(){ return null; });
+        if(j){
+          if(runningJob){
+            switchTab('training');
+          }
+          startPolling(targetId);
+        }
+      }
+    }catch(e){}
+  }
+  checkActiveJobOnLoad();
+  // Model filter
+  function filterModels(){
+    var q=(document.getElementById('model-filter')||{value:''}).value.toLowerCase();
+    var ao=(document.getElementById('active-only-check')||{checked:false}).checked;
+    document.querySelectorAll('.model-row').forEach(function(row){
+      var ok=row.textContent.toLowerCase().includes(q)&&(!ao||row.classList.contains('row-active'));
+      row.style.display=ok?'':'none';
+    });
+  }
+  var mf=document.getElementById('model-filter');if(mf)mf.addEventListener('input',filterModels);
+  var ao=document.getElementById('active-only-check');if(ao)ao.addEventListener('change',filterModels);
+  // Activate
+  var pendingId=null;
+  var actModal=document.getElementById('activate-modal');
+  document.querySelectorAll('.activate-model-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      pendingId=btn.dataset.mid;
+      document.getElementById('activate-modal-msg').textContent='Activate model '+btn.dataset.mid+' for marker "'+btn.dataset.marker+'"?';
+      document.getElementById('synth-override-row').style.display='none';
+      document.getElementById('synth-override-check').checked=false;
+      actModal.classList.remove('hidden');
+    });
+  });
+  function closeActModal(){if(actModal)actModal.classList.add('hidden');}
+  document.getElementById('activate-modal-close')&&document.getElementById('activate-modal-close').addEventListener('click',closeActModal);
+  document.getElementById('activate-cancel-btn')&&document.getElementById('activate-cancel-btn').addEventListener('click',closeActModal);
+  document.getElementById('activate-confirm-btn')&&document.getElementById('activate-confirm-btn').addEventListener('click',async function(){
+    if(!pendingId)return;
+    var override=(document.getElementById('synth-override-check')||{checked:false}).checked;
+    try{await api('/api/training/models/'+pendingId+'/activate',{method:'POST',body:JSON.stringify({override_synthetic_guard:override})});
+    closeActModal();location.reload();}
+    catch(err){
+      var amsg=document.getElementById('activate-modal-msg');
+      if(amsg)amsg.textContent=err.message;
+      if(err.message&&err.message.toLowerCase().includes('synthetic')){
+        var sr=document.getElementById('synth-override-row');if(sr)sr.style.display='flex';
+      }else{alert('Activation failed: '+err.message);}
+    }
+  });
+  // Deactivate
+  document.querySelectorAll('.deactivate-model-btn').forEach(function(btn){
+    btn.addEventListener('click',async function(){
+      if(!confirm('Deactivate? Inference reverts to baseline.'))return;
+      try{await api('/api/training/models/'+btn.dataset.mid+'/deactivate',{method:'POST'});location.reload();}
+      catch(err){alert('Failed: '+err.message);}
+    });
+  });
+  // Delete model
+  document.querySelectorAll('.delete-model-btn').forEach(function(btn){
+    btn.addEventListener('click',async function(){
+      if(!confirm('Delete model record '+btn.dataset.mid+'?'))return;
+      try{await api('/api/training/models/'+btn.dataset.mid,{method:'DELETE'});var row=document.getElementById('model-row-'+btn.dataset.mid);if(row)row.remove();}
+      catch(err){alert('Failed: '+err.message);}
+    });
+  });
+  // Metrics modal
+  var mModal=document.getElementById('metrics-modal');
+  var mBody=document.getElementById('metrics-modal-body');
+  var mTitle=document.getElementById('metrics-modal-title');
+  document.querySelectorAll('.view-metrics-btn').forEach(function(btn){
+    btn.addEventListener('click',async function(){
+      if(mBody)mBody.innerHTML='<p>Loading...</p>';if(mModal)mModal.classList.remove('hidden');
+      try{var m=await api('/api/training/models/'+btn.dataset.mid);if(mTitle)mTitle.textContent='Metrics — '+m.model_id;if(mBody)mBody.innerHTML=renderMetrics(m);}
+      catch(err){if(mBody)mBody.innerHTML='<p>'+err.message+'</p>';}
+    });
+  });
+  document.getElementById('metrics-modal-close')&&document.getElementById('metrics-modal-close').addEventListener('click',function(){if(mModal)mModal.classList.add('hidden');});
+  if(mModal)mModal.addEventListener('click',function(e){if(e.target===mModal)mModal.classList.add('hidden');});
+  function renderMetrics(m){
+    var splits=m.metrics||{};var html='<div style="margin-bottom:1rem"><b>'+m.strip_type+' / '+m.marker+'</b> | '+m.algorithm+' v'+m.version+' | FV='+m.feature_version+'</div>';
+    ['val','test'].forEach(function(sp){
+      var s=splits[sp]||splits;if(!s||!s.accuracy)return;
+      html+='<h4 style="color:#6c63ff;margin:.75rem 0 .4rem">'+sp.toUpperCase()+' (n='+s.n_samples+')</h4>';
+      html+='Acc: <b>'+(s.accuracy*100).toFixed(1)+'%</b> | F1: <b>'+(s.macro_f1||0).toFixed(3)+'</b> | MALE: <b>'+(s.mean_absolute_level_error||0).toFixed(2)+'</b>';
+      if(s.confusion_matrix&&s.classes){
+        html+='<br><br><table class="cm-table"><tr><th></th>';
+        s.classes.forEach(function(c){html+='<th>'+c+'</th>';});html+='</tr>';
+        s.confusion_matrix.forEach(function(row,ri){
+          html+='<tr><th>'+s.classes[ri]+'</th>';
+          row.forEach(function(v,ci){html+='<td class="'+(ri===ci?'cm-diag':'')+'">'+v+'</td>';});
+          html+='</tr>';
+        });
+        html+='</table>';
+      }
+      if(s.feature_importance_top10){
+        html+='<br><b>Top features:</b><ul class="top-ft">';
+        s.feature_importance_top10.forEach(function(f){html+='<li><span>'+f.feature+'</span><span>'+(f.importance*100).toFixed(2)+'%</span></li>';});
+        html+='</ul>';
+      }
+    });
+    return html;
+  }
+  // Refresh jobs
+  document.getElementById('refresh-jobs-btn')&&document.getElementById('refresh-jobs-btn').addEventListener('click',async function(){
+    try{var d=await api('/api/training/jobs');var tbody=document.getElementById('jobs-tbody');
+    if(!tbody)return;
+    tbody.innerHTML=(d.jobs||[]).map(function(j){
+      var sb=j.status==='completed'?'<span class="badge badge-success">done</span>':j.status==='running'?'<span class="badge badge-warning">running</span>':j.status==='failed'?'<span class="badge badge-danger">failed</span>':'<span class="badge badge-muted">'+j.status+'</span>';
+      var actionHtml = '<div style="display:flex;gap:.3rem;align-items:center"><button class="btn btn-sm btn-secondary view-job-table-btn" data-jid="'+j.job_id+'">View</button>';
+      if(j.status === 'running' || j.status === 'pending' || j.status === 'paused'){
+        actionHtml += '<button class="btn btn-sm btn-danger cancel-job-table-btn" data-jid="'+j.job_id+'">Stop</button>';
+      }
+      actionHtml += '</div>';
+      return '<tr id="job-row-'+j.job_id+'"><td class="mono small">'+j.job_id+'</td><td>'+j.strip_type+'</td><td><b>'+j.marker+'</b></td><td class="small">'+j.algorithm+'</td><td id="job-status-col-'+j.job_id+'">'+sb+'</td><td><div class="mini-progress"><div style="width:'+j.progress+'%"></div></div> <span class="small">'+j.progress+'%</span></td><td class="text-muted small">'+(j.created_at||'').slice(0,16)+'</td><td class="mono small">'+(j.model_id||'')+'</td><td>'+actionHtml+'</td></tr>';
+    }).join('')||'<tr><td colspan="9" class="empty-state">No jobs yet.</td></tr>';
+    attachViewJobListeners();
+    }catch(e){}
+  });
+})();
+</script>
+{% endblock %}

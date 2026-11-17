@@ -1,0 +1,363 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="camera-container">
+    <div class="camera-header">
+        <div class="camera-status">
+            <span class="status-label">Status:</span>
+            <span class="status-value" id="cameraStatus">Initializing...</span>
+        </div>
+    </div>
+
+    {% if test_profile == 'SALIVA-PH4' %}
+    <aside class="saliva-capture-note" role="note">
+        <strong>Photograph the strip once with all four pads visible.</strong>
+        <span>The four pad colors are compared together to estimate one pH value. Follow the package for reaction timing; its front and back are chart references, not separate strip photos.</span>
+    </aside>
+    {% endif %}
+
+    <div class="camera-main">
+        <div class="camera-view">
+            <div class="camera-preview" id="cameraPreview">
+                <div class="camera-overlay">
+                    <div class="strip-guide">
+                        <div class="guide-border">
+                            <span class="guide-text">PLACE STRIP HERE</span>
+                        </div>
+                    </div>
+                </div>
+                <img id="cameraFrame" src="" alt="Camera preview">
+            </div>
+        </div>
+
+        <div class="camera-controls">
+            <div class="capture-controls">
+                <button class="btn-primary" id="captureBtn" disabled>
+                    Capture and analyze
+                </button>
+                <div class="timer" id="timerDisplay">
+                    <span class="timer-value" id="timerValue">0s</span>
+                </div>
+            </div>
+
+            <section class="illumination-control" aria-labelledby="illuminationLabel">
+                <div class="illumination-heading">
+                    <label id="illuminationLabel" for="lightBrightness">Strip light</label>
+                    <output id="lightBrightnessValue" for="lightBrightness">0%</output>
+                </div>
+                <input id="lightBrightness" type="range" min="0" max="100" step="1" value="0"
+                       aria-describedby="illuminationHelp illuminationStatus" disabled>
+                <p class="illumination-help" id="illuminationHelp">
+                    Set the light level for the preview and capture. 0% turns it off.
+                </p>
+                <p class="illumination-status" id="illuminationStatus" role="status" aria-live="polite">
+                    Checking GPIO 18…
+                </p>
+            </section>
+
+            <div class="focus-control">
+                <div class="focus-heading">
+                    <label for="focusSlider">Manual focus</label>
+                    <output id="focusValue" for="focusSlider">128</output>
+                </div>
+                <input id="focusSlider" type="range" min="0" max="255" value="128"
+                       aria-describedby="focusHelp focusStatus">
+                <div class="focus-scale" aria-hidden="true">
+                    <span>Near</span>
+                    <span>Far</span>
+                </div>
+                <p class="focus-help" id="focusHelp">Moving the slider turns autofocus off.</p>
+                <p class="focus-status" id="focusStatus" role="status" aria-live="polite">
+                    Autofocus is on
+                </p>
+            </div>
+
+            <div class="upload-controls">
+                <label for="imageUpload">Or choose a photo to analyze</label>
+                <input type="file" id="imageUpload" accept="image/jpeg,image/png,image/webp,image/bmp">
+                <button class="btn-secondary" id="uploadBtn" disabled>Analyze Photo</button>
+            </div>
+
+            <div class="progress-bar" id="progressBar" style="display:none;">
+                <div class="progress-fill" id="progressFill" style="width:0%"></div>
+                <span class="progress-text" id="progressText">Analyzing...</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="camera-info">
+        <div class="info-item">
+            <span class="info-label">Patient:</span>
+            <span class="info-value">{{ patient.first_name }} {{ patient.last_name }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">Sample:</span>
+            <span class="info-value">{{ sample_type|title }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">Test:</span>
+            <span class="info-value">{{ test_profile_name }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">Parameters:</span>
+            <span class="info-value">
+                {% for marker in test_markers %}
+                    {% if marker == 'pH' %}pH{% else %}{{ marker|replace('_', ' ')|title }}{% endif %}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const frame = document.getElementById('cameraFrame');
+    const statusEl = document.getElementById('cameraStatus');
+    const captureBtn = document.getElementById('captureBtn');
+    const uploadInput = document.getElementById('imageUpload');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const lightBrightness = document.getElementById('lightBrightness');
+    const lightBrightnessValue = document.getElementById('lightBrightnessValue');
+    const illuminationStatus = document.getElementById('illuminationStatus');
+    const focusSlider = document.getElementById('focusSlider');
+    const focusValue = document.getElementById('focusValue');
+    const focusStatus = document.getElementById('focusStatus');
+    const progressBar = document.getElementById('progressBar');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    
+    let isCapturing = false;
+    let timerValue = 0;
+    let timerInterval = null;
+    let focusUpdateTimeout = null;
+    let brightnessUpdateTimeout = null;
+    const patientId = {{ (patient.patient_id if patient else '')|tojson }};
+    const sampleType = {{ sample_type|tojson }};
+    const testProfile = {{ test_profile|tojson }};
+
+    frame.addEventListener('load', function() {
+        statusEl.textContent = 'Ready';
+        statusEl.style.color = '#16a34a';
+        captureBtn.disabled = isCapturing;
+    });
+
+    frame.addEventListener('error', function() {
+        statusEl.textContent = 'Camera unavailable';
+        statusEl.style.color = '#dc2626';
+        captureBtn.disabled = true;
+    });
+
+    focusSlider.addEventListener('input', function() {
+        const value = Number(focusSlider.value);
+        focusValue.value = String(value);
+        focusStatus.textContent = 'Adjusting focus…';
+        clearTimeout(focusUpdateTimeout);
+        focusUpdateTimeout = setTimeout(() => {
+            fetch('/api/camera/focus', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({value})
+            })
+            .then(async response => {
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || 'Manual focus could not be set.');
+                }
+                focusStatus.textContent =
+                    `Manual focus set to ${Math.round(data.focus_value)}.`;
+            })
+            .catch(error => {
+                focusStatus.textContent = error.message;
+            });
+        }, 120);
+    });
+
+    function setBrightness(value, announce = true) {
+        return fetch('/api/illumination/brightness', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({value})
+        })
+        .then(async response => {
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || 'Could not set strip-light brightness.');
+            }
+            if (announce) {
+                illuminationStatus.textContent = value === 0
+                    ? 'Strip light is off.'
+                    : `Strip light set to ${data.brightness}%.`;
+            }
+        });
+    }
+
+    fetch('/api/illumination/brightness')
+    .then(async response => {
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'GPIO 18 is unavailable.');
+        }
+        lightBrightness.disabled = false;
+        lightBrightness.value = String(data.brightness);
+        lightBrightnessValue.value = `${data.brightness}%`;
+        illuminationStatus.textContent = data.brightness === 0
+            ? 'Strip light is off.'
+            : `Strip light set to ${data.brightness}%.`;
+    })
+    .catch(error => {
+        lightBrightness.disabled = true;
+        illuminationStatus.textContent = error.message;
+    });
+
+    lightBrightness.addEventListener('input', function() {
+        const value = Number(lightBrightness.value);
+        lightBrightnessValue.value = `${value}%`;
+        illuminationStatus.textContent = 'Adjusting strip light…';
+        clearTimeout(brightnessUpdateTimeout);
+        brightnessUpdateTimeout = setTimeout(() => {
+            setBrightness(value).catch(error => {
+                illuminationStatus.textContent = error.message;
+            });
+        }, 100);
+    });
+
+    function startTimer() {
+        timerValue = 0;
+        document.getElementById('timerValue').textContent = '0s';
+        timerInterval = setInterval(() => {
+            timerValue++;
+            document.getElementById('timerValue').textContent = `${timerValue}s`;
+        }, 1000);
+    }
+
+    function stopTimer() {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+
+    function analyzeImage(responsePromise) {
+        if (isCapturing) return;
+        isCapturing = true;
+        captureBtn.disabled = true;
+        uploadBtn.disabled = true;
+        progressBar.style.display = 'block';
+        startTimer();
+
+        responsePromise
+        .then(response => response.json().then(data => ({response, data})))
+        .then(({response, data}) => {
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || data.reason || data.error || 'Analysis failed');
+            }
+            stopTimer();
+            updateProgress(100, 'Analysis complete.');
+            setTimeout(() => {
+                window.location.href = `/results/${data.assessment_id}`;
+            }, 1000);
+        })
+        .catch(error => {
+            stopTimer();
+            updateProgress(0, 'Error: ' + error.message);
+            isCapturing = false;
+            captureBtn.disabled = false;
+            uploadBtn.disabled = !uploadInput.files.length;
+        });
+    }
+
+    captureBtn.addEventListener('click', function() {
+        if (isCapturing) return;
+        captureBtn.disabled = true;
+        clearTimeout(brightnessUpdateTimeout);
+        const selectedBrightness = Number(lightBrightness.value);
+        const prepareLight = lightBrightness.disabled
+            ? Promise.resolve()
+            : setBrightness(selectedBrightness, false);
+        prepareLight
+        .then(() => fetch('/api/camera/capture', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        }))
+        .then(response => response.json().then(data => ({response, data})))
+        .then(({response, data}) => {
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || 'Capture failed');
+            }
+            const request = fetch('/api/analyze', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    image_path: data.image_path,
+                    patient_id: patientId,
+                    sample_type: sampleType,
+                    test_profile: testProfile
+                })
+            });
+            updateProgress(20, 'Image captured');
+            analyzeImage(request);
+        })
+        .catch(error => {
+            stopTimer();
+            updateProgress(0, 'Error: ' + error.message);
+            captureBtn.disabled = false;
+        });
+    });
+
+    uploadInput.addEventListener('change', function() {
+        uploadBtn.disabled = !uploadInput.files.length || isCapturing;
+    });
+
+    uploadBtn.addEventListener('click', function() {
+        const image = uploadInput.files[0];
+        if (!image || isCapturing) return;
+        const formData = new FormData();
+        formData.append('image', image);
+        formData.append('patient_id', patientId);
+        formData.append('sample_type', sampleType);
+        formData.append('test_profile', testProfile);
+        analyzeImage(fetch('/api/analyze', {method: 'POST', body: formData}));
+    });
+
+    function updateProgress(percent, text) {
+        progressFill.style.width = `${percent}%`;
+        progressText.textContent = text;
+    }
+
+    function stopPreviewAndCamera() {
+        frame.removeAttribute('src');
+        navigator.sendBeacon('/api/camera/stop');
+        navigator.sendBeacon(
+            '/api/illumination/brightness',
+            new Blob([JSON.stringify({value: 0})], {type: 'application/json'})
+        );
+    }
+
+    function startPreview() {
+        if (frame.src.endsWith('/api/camera/stream')) return;
+        statusEl.textContent = 'Connecting...';
+        statusEl.style.color = '';
+        frame.src = '/api/camera/stream';
+    }
+
+    startPreview();
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            stopPreviewAndCamera();
+        } else {
+            startPreview();
+            if (!lightBrightness.disabled && Number(lightBrightness.value) > 0) {
+                setBrightness(Number(lightBrightness.value), false).catch(error => {
+                    illuminationStatus.textContent = error.message;
+                });
+            }
+        }
+    });
+    window.addEventListener('pagehide', stopPreviewAndCamera);
+
+    window.addEventListener('beforeunload', function() {
+        if (timerInterval) clearInterval(timerInterval);
+    });
+});
+</script>
+{% endblock %}

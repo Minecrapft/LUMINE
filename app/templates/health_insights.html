@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="insights-container">
+    <h1 class="page-title">Health Insights</h1>
+    <p class="page-subtitle">Overview of health trends and statistics</p>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.total_assessments }}</div>
+            <div class="stat-label">Total Screenings</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.total_patients }}</div>
+            <div class="stat-label">Total Patients</div>
+        </div>
+        <div class="stat-card warning">
+            <div class="stat-number">{{ stats.followup_needed }}</div>
+            <div class="stat-label">Needs Follow-up</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ recent|length }}</div>
+            <div class="stat-label">Recent Screenings</div>
+        </div>
+    </div>
+
+    <div class="recent-assessments">
+        <h3 class="section-title">Recent Screenings</h3>
+        <div class="assessment-list">
+            {% if recent %}
+                {% for assessment in recent %}
+                <div class="assessment-item insight-assessment status-{{ assessment.overall_status }}{% if assessment.overall_status in ['attention', 'followup_recommended'] %} needs-attention{% endif %}">
+                    <div class="assessment-info">
+                        <span class="patient-name">{{ assessment.first_name }} {{ assessment.last_name }}</span>
+                        <span class="assessment-date">{{ assessment.date[:10] }}</span>
+                    </div>
+                    <div class="assessment-status">
+                        <span class="status-badge status-{{ assessment.overall_status }}">
+                            {% if assessment.overall_status == 'attention' %}
+                                Needs attention
+                            {% elif assessment.overall_status == 'followup_recommended' %}
+                                Follow-up recommended
+                            {% elif assessment.overall_status == 'normal' %}
+                                Within range
+                            {% else %}
+                                {{ assessment.overall_status|replace('_', ' ')|title }}
+                            {% endif %}
+                        </span>
+                    </div>
+                    <a href="{{ url_for('main.results', assessment_id=assessment.assessment_id) }}" class="view-btn">View</a>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <p>No screenings yet.</p>
+                    <a href="{{ url_for('main.new_screening') }}" class="btn-primary">New Screening</a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

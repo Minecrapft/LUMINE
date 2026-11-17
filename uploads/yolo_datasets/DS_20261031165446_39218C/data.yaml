@@ -1,0 +1,13 @@
+train: C:/Users/marlon/OneDrive/Desktop/LUMINE/uploads/yolo_datasets/DS_20261031165446_39218C/train/images
+val: C:/Users/marlon/OneDrive/Desktop/LUMINE/uploads/yolo_datasets/DS_20261031165446_39218C/valid/images
+test: C:/Users/marlon/OneDrive/Desktop/LUMINE/uploads/yolo_datasets/DS_20261031165446_39218C/test/images
+
+nc: 11
+names: ['Bilirubin', 'Blood', 'Glucose', 'Ketone', 'Leukocytes', 'Nitrite', 'Protein', 'SpGravity', 'Urobilinogen', 'pH', 'strip']
+
+roboflow:
+  workspace: urine-test-strips-qq9jx
+  project: urine-test-strips-main-2
+  version: 1
+  license: Private
+  url: https://universe.roboflow.com/urine-test-strips-qq9jx/urine-test-strips-main-2/dataset/1

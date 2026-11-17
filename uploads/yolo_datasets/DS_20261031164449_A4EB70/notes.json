@@ -1,0 +1,29 @@
+{
+  "categories": [
+    {
+      "id": 0,
+      "name": "Protein"
+    },
+    {
+      "id": 1,
+      "name": "glucose"
+    },
+    {
+      "id": 2,
+      "name": "ketone"
+    },
+    {
+      "id": 3,
+      "name": "pH"
+    },
+    {
+      "id": 4,
+      "name": "strip"
+    }
+  ],
+  "info": {
+    "year": 2026,
+    "version": "1.0",
+    "contributor": "Label Studio"
+  }
+}

@@ -1,0 +1,803 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="screening-container">
+    <h1 class="page-title">New Screening</h1>
+    <p class="page-subtitle">Guided workflow for sample collection and analysis</p>
+    
+    <div class="screening-steps">
+        <div class="step active">
+            <span class="step-number">1</span>
+            <span class="step-label">Select Patient</span>
+        </div>
+        <div class="step">
+            <span class="step-number">2</span>
+            <span class="step-label">Select Sample</span>
+        </div>
+        <div class="step">
+            <span class="step-number">3</span>
+            <span class="step-label">Select Test</span>
+        </div>
+        <div class="step">
+            <span class="step-number">4</span>
+            <span class="step-label">Capture</span>
+        </div>
+        <div class="step">
+            <span class="step-number">5</span>
+            <span class="step-label">Results</span>
+        </div>
+    </div>
+
+    <div class="screening-form">
+        <!-- Step 1: Patient Selection -->
+        <div class="step-content" id="step1">
+            <h3>Select Patient</h3>
+            <div class="patient-search" {% if selected_patient %}style="display:none;"{% endif %}>
+                <input type="text" id="patientSearch" placeholder="Search by name or ID..." 
+                       class="search-input" autocomplete="off">
+                <div class="patient-results" id="patientResults"></div>
+            </div>
+            <div class="quick-actions" {% if selected_patient %}style="display:none;"{% endif %}>
+                <button class="btn-secondary" id="newPatientBtn">+ New Patient</button>
+            </div>
+            <div class="selected-patient" id="selectedPatient" {% if not selected_patient %}style="display:none;"{% endif %}>
+                <div class="patient-card">
+                    <span class="patient-name" id="selectedName">{% if selected_patient %}{{ selected_patient.first_name }} {{ selected_patient.last_name }}{% endif %}</span>
+                    <span class="patient-detail" id="selectedDetail">{% if selected_patient %}ID: {{ selected_patient.patient_id }}{% endif %}</span>
+                    <button class="btn-small" id="changePatientBtn">Change</button>
+                </div>
+            </div>
+            <button class="btn-primary next-step" data-next="2" disabled id="step1Next">Next</button>
+        </div>
+
+        <!-- Step 2: Sample Selection -->
+        <div class="step-content" id="step2" style="display:none;">
+            <h3>Select Sample Type</h3>
+            <div class="sample-options">
+                <button type="button" class="sample-option selected" data-sample="urine" aria-pressed="true">
+                    <span class="sample-name">Urine</span>
+                    <span class="sample-badge validated">Validated</span>
+                </button>
+                <button type="button" class="sample-option" data-sample="saliva" aria-pressed="false"
+                        aria-label="Saliva, research-use pH strip">
+                    <span class="sample-name">Saliva</span>
+                    <span class="sample-badge experimental">Research</span>
+                </button>
+            </div>
+            <button class="btn-primary next-step" data-next="3" id="step2Next">Next</button>
+        </div>
+
+        <!-- Step 3: Test Selection -->
+        <div class="step-content" id="step3" style="display:none;">
+            <h3>Select Test Profile</h3>
+            <div class="test-options">
+                {% for profile in test_profiles %}
+                <div class="test-option{% if profile.profile_id == 'URS-4K' %} selected{% endif %}"
+                     data-test="{{ profile.profile_id }}" data-sample="{{ profile.sample_type }}">
+                    <span class="test-name">{{ profile.name }}</span>
+                    <span class="test-detail">
+                        {{ profile.configuration.markers|length }} parameters:
+                        {% for marker in profile.configuration.markers %}
+                            {% if marker == 'pH' %}pH{% else %}{{ marker|replace('_', ' ')|title }}{% endif %}{% if not loop.last %}, {% endif %}
+                        {% endfor %}
+                    </span>
+                    <span class="test-badge {{ 'experimental' if profile.validation_status == 'experimental' else 'validated' }}">
+                        {{ 'Research' if profile.validation_status == 'experimental' else profile.validation_status|title }}
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+            <button class="btn-primary" id="startCaptureBtn">Start Camera</button>
+        </div>
+    </div>
+</div>
+
+<!-- FULL PATIENT FORM MODAL -->
+<div class="modal-overlay" id="patientModal" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="modalTitle">Add Patient</h2>
+            <button class="modal-close" id="modalClose">×</button>
+        </div>
+        <div class="modal-body">
+            <form id="patientForm">
+                <input type="hidden" id="editPatientId" value="">
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label required">First Name</label>
+                        <input type="text" id="firstName" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required">Last Name</label>
+                        <input type="text" id="lastName" class="form-input" required>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Date of Birth</label>
+                        <input type="date" id="dateOfBirth" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Gender</label>
+                        <select id="gender" class="form-input">
+                            <option value="">Select...</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                            <option value="Non-binary">Non-binary</option>
+                            <option value="Prefer not to say">Prefer not to say</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Email Address</label>
+                        <input type="email" id="email" class="form-input" placeholder="patient@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Phone Number</label>
+                        <input type="tel" id="phone" class="form-input" placeholder="+1 234 567 8900">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Address</label>
+                    <input type="text" id="address" class="form-input" placeholder="Street, City, State, ZIP">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Medical History</label>
+                    <textarea id="medicalHistory" class="form-input" rows="3" placeholder="Relevant medical history, conditions, surgeries, medications..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Allergies</label>
+                    <input type="text" id="allergies" class="form-input" placeholder="Known allergies to medications, foods, etc.">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Emergency Contact</label>
+                    <input type="text" id="emergencyContact" class="form-input" placeholder="Name and phone number">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Notes</label>
+                    <textarea id="notes" class="form-input" rows="2" placeholder="Additional notes..."></textarea>
+                </div>
+
+                <div class="form-group checkbox">
+                    <input type="checkbox" id="consentStatus">
+                    <label for="consentStatus">Consent obtained for data collection and analysis</label>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-secondary" id="modalCancel">Cancel</button>
+            <button class="btn-primary" id="modalSave">Save Patient</button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Modal styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    padding: 20px;
+}
+
+.modal {
+    background: white;
+    border-radius: 16px;
+    max-width: 640px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e2e8f0;
+    position: sticky;
+    top: 0;
+    background: white;
+    border-radius: 16px 16px 0 0;
+    z-index: 1;
+}
+
+.modal-header h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #94a3b8;
+    padding: 4px;
+}
+
+.modal-close:hover {
+    color: #1e293b;
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    position: sticky;
+    bottom: 0;
+    background: white;
+    border-radius: 0 0 16px 16px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #475569;
+    margin-bottom: 4px;
+}
+
+.form-group label.required::after {
+    content: ' *';
+    color: #dc2626;
+}
+
+.form-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    transition: border-color 0.2s;
+    background: white;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #2563eb;
+}
+
+.form-input::placeholder {
+    color: #94a3b8;
+}
+
+.form-group.checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.form-group.checkbox input {
+    width: 18px;
+    height: 18px;
+    accent-color: #2563eb;
+}
+
+.form-group.checkbox label {
+    margin-bottom: 0;
+    font-weight: 400;
+}
+
+.patient-search {
+    position: relative;
+}
+
+.patient-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 100;
+    margin-top: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.patient-result {
+    padding: 10px 16px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.patient-result:hover {
+    background: #dbeafe;
+}
+
+.patient-id {
+    color: #8a9baa;
+    font-size: 0.8rem;
+}
+
+.selected-patient {
+    margin: 12px 0;
+}
+
+.patient-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #dbeafe;
+    border-radius: 8px;
+}
+
+.patient-card .patient-name {
+    font-weight: 600;
+}
+
+.patient-card .patient-detail {
+    color: #4a5b6a;
+    font-size: 0.85rem;
+}
+
+.sample-options,
+.test-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.sample-option,
+.test-option {
+    padding: 16px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.sample-option:hover,
+.test-option:hover {
+    border-color: #2563eb;
+}
+
+.sample-option.selected,
+.test-option.selected {
+    border-color: #2563eb;
+    background: #dbeafe;
+}
+
+.sample-name {
+    font-weight: 600;
+    display: block;
+    font-size: 0.95rem;
+}
+
+.sample-badge,
+.test-badge {
+    font-size: 0.6rem;
+    padding: 1px 10px;
+    border-radius: 20px;
+    margin-top: 4px;
+    display: inline-block;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.sample-badge.experimental,
+.test-badge.experimental {
+    background: #ede9fe;
+    color: #7c3aed;
+}
+
+.test-badge.validated {
+    background: #dcfce7;
+    color: #16a34a;
+}
+
+.btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    background: white;
+    color: #1a2332;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.btn-secondary:hover {
+    background: #f0f4f8;
+}
+
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.btn-primary:hover {
+    background: #1d4ed8;
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-small {
+    padding: 4px 12px;
+    font-size: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: transparent;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s;
+}
+
+.btn-small:hover {
+    background: #f0f4f8;
+}
+
+.screening-steps {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 32px;
+    padding: 16px 20px;
+    background: white;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    opacity: 0.4;
+}
+
+.step.active {
+    opacity: 1;
+}
+
+.step-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #8a9baa;
+}
+
+.step.active .step-number {
+    background: #2563eb;
+    color: white;
+}
+
+.step-label {
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.step-content {
+    background: white;
+    padding: 32px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 24px;
+}
+
+.step-content h3 {
+    margin-bottom: 20px;
+}
+
+.search-input {
+    width: 100%;
+    padding: 10px 16px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    transition: border-color 0.2s;
+    background: white;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: #2563eb;
+}
+
+@media (max-width: 768px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+    .modal {
+        max-width: 95%;
+        margin: 10px;
+    }
+    .screening-steps {
+        flex-wrap: wrap;
+    }
+    .step {
+        flex: 1 1 30%;
+        min-width: 60px;
+    }
+    .step-label {
+        font-size: 0.7rem;
+    }
+    .step-content {
+        padding: 20px;
+    }
+}
+
+@media (max-width: 480px) {
+    .sample-options,
+    .test-options {
+        grid-template-columns: 1fr;
+    }
+    .step-content {
+        padding: 16px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('patientSearch');
+    const resultsContainer = document.getElementById('patientResults');
+    let selectedPatient = {{ (selected_patient.patient_id if selected_patient else none)|tojson }};
+
+    // ===== PATIENT SEARCH =====
+    searchInput.addEventListener('input', debounce(function() {
+        const query = this.value.trim();
+        if (query.length < 2) {
+            resultsContainer.innerHTML = '';
+            return;
+        }
+
+        fetch('/api/patients/search?q=' + encodeURIComponent(query))
+            .then(r => r.json())
+            .then(patients => {
+                resultsContainer.innerHTML = patients.map(p => `
+                    <div class="patient-result" data-id="${p.patient_id}">
+                        <span>${p.first_name} ${p.last_name}</span>
+                        <span class="patient-id">${p.patient_id}</span>
+                    </div>
+                `).join('');
+
+                document.querySelectorAll('.patient-result').forEach(el => {
+                    el.addEventListener('click', function() {
+                        const id = this.dataset.id;
+                        const name = this.querySelector('span').textContent;
+                        selectPatient(id, name);
+                    });
+                });
+            });
+    }, 300));
+
+    function selectPatient(id, name) {
+        selectedPatient = id;
+        document.getElementById('selectedName').textContent = name;
+        document.getElementById('selectedDetail').textContent = 'ID: ' + id;
+        document.getElementById('selectedPatient').style.display = 'block';
+        document.getElementById('step1Next').disabled = false;
+        resultsContainer.innerHTML = '';
+        searchInput.value = '';
+        document.querySelector('.patient-search').style.display = '';
+        document.querySelector('.quick-actions').style.display = '';
+    }
+
+    if (selectedPatient) {
+        document.getElementById('step1Next').disabled = false;
+    }
+
+    document.getElementById('changePatientBtn').addEventListener('click', function() {
+        selectedPatient = null;
+        document.getElementById('selectedPatient').style.display = 'none';
+        document.getElementById('step1Next').disabled = true;
+        document.querySelector('.patient-search').style.display = '';
+        document.querySelector('.quick-actions').style.display = '';
+        searchInput.focus();
+    });
+
+    // ===== STEP NAVIGATION =====
+    document.querySelectorAll('.next-step').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const next = parseInt(this.dataset.next);
+            document.querySelectorAll('.step-content').forEach(el => el.style.display = 'none');
+            document.getElementById('step' + next).style.display = 'block';
+            
+            document.querySelectorAll('.step').forEach((el, i) => {
+                el.classList.toggle('active', i + 1 <= next);
+            });
+        });
+    });
+
+    // ===== SAMPLE & TEST SELECTION =====
+    document.querySelectorAll('.sample-option').forEach(el => {
+        el.addEventListener('click', function() {
+            document.querySelectorAll('.sample-option').forEach(o => {
+                o.classList.remove('selected');
+                o.setAttribute('aria-pressed', 'false');
+            });
+            this.classList.add('selected');
+            this.setAttribute('aria-pressed', 'true');
+            updateTestProfiles(this.dataset.sample);
+        });
+    });
+
+    function updateTestProfiles(sampleType) {
+        const options = Array.from(document.querySelectorAll('.test-option'));
+        const available = options.filter(option => option.dataset.sample === sampleType);
+        options.forEach(option => {
+            option.style.display = option.dataset.sample === sampleType ? '' : 'none';
+            option.classList.remove('selected');
+        });
+        if (available.length) available[0].classList.add('selected');
+        document.getElementById('startCaptureBtn').disabled = available.length === 0;
+    }
+
+    document.querySelectorAll('.test-option').forEach(el => {
+        el.addEventListener('click', function() {
+            document.querySelectorAll('.test-option').forEach(o => o.classList.remove('selected'));
+            this.classList.add('selected');
+        });
+    });
+    updateTestProfiles(document.querySelector('.sample-option.selected').dataset.sample);
+
+    // ===== START CAMERA =====
+    document.getElementById('startCaptureBtn').addEventListener('click', function() {
+        if (!selectedPatient) {
+            alert('Please select a patient first.');
+            return;
+        }
+
+        const sample = document.querySelector('.sample-option.selected').dataset.sample;
+        const selectedTest = document.querySelector('.test-option.selected');
+        if (!selectedTest) {
+            alert('Please select a test profile.');
+            return;
+        }
+        const test = selectedTest.dataset.test;
+
+        window.location.href = '/camera?patient_id=' + encodeURIComponent(selectedPatient) + '&sample_type=' + encodeURIComponent(sample) + '&test_profile=' + encodeURIComponent(test);
+    });
+
+    // ===== FULL PATIENT FORM MODAL =====
+    const modal = document.getElementById('patientModal');
+
+    function openModal() {
+        document.getElementById('editPatientId').value = '';
+        document.getElementById('patientForm').reset();
+        document.getElementById('modalTitle').textContent = 'Add Patient';
+        modal.style.display = 'flex';
+    }
+
+    function closeModal() {
+        modal.style.display = 'none';
+    }
+
+    document.getElementById('newPatientBtn').addEventListener('click', openModal);
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+    document.getElementById('modalCancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', function(e) {
+        if (e.target === this) closeModal();
+    });
+
+    // ===== SAVE PATIENT =====
+    document.getElementById('modalSave').addEventListener('click', function() {
+        const data = {
+            first_name: document.getElementById('firstName').value.trim(),
+            last_name: document.getElementById('lastName').value.trim(),
+            date_of_birth: document.getElementById('dateOfBirth').value,
+            gender: document.getElementById('gender').value,
+            email: document.getElementById('email').value.trim(),
+            phone: document.getElementById('phone').value.trim(),
+            address: document.getElementById('address').value.trim(),
+            medical_history: document.getElementById('medicalHistory').value.trim(),
+            allergies: document.getElementById('allergies').value.trim(),
+            emergency_contact: document.getElementById('emergencyContact').value.trim(),
+            notes: document.getElementById('notes').value.trim(),
+            consent_status: document.getElementById('consentStatus').checked
+        };
+
+        if (!data.first_name || !data.last_name) {
+            alert('First name and last name are required.');
+            return;
+        }
+
+        fetch('/api/patients/create', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        })
+        .then(r => r.json())
+        .then(result => {
+            if (result.success) {
+                closeModal();
+                alert('Patient created successfully!');
+                // Auto-select the new patient
+                selectPatient(result.patient_id, data.first_name + ' ' + data.last_name);
+            } else {
+                throw new Error(result.error || 'Operation failed');
+            }
+        })
+        .catch(err => {
+            alert('Error: ' + err.message);
+        });
+    });
+
+    // ===== KEYBOARD SHORTCUTS =====
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && modal.style.display === 'flex') {
+            closeModal();
+        }
+    });
+
+    function debounce(fn, delay) {
+        let timer;
+        return function(...args) {
+            clearTimeout(timer);
+            timer = setTimeout(() => fn.apply(this, args), delay);
+        };
+    }
+});
+</script>
+{% endblock %}
