@@ -24,6 +24,23 @@ sys.path.insert(0, ROOT)
 class TestPhase0Smoke:
     """Phase 0: every critical module can be imported; DB initialises cleanly."""
 
+    def test_windows_model_path_resolves_under_local_models_directory(self, tmp_path):
+        from app.routes import _resolve_model_path
+
+        model_path = tmp_path / "models" / "yolov8n_strip_test" / "weights" / "best.onnx"
+        model_path.parent.mkdir(parents=True)
+        model_path.write_bytes(b"test model")
+        stored_path = (
+            r"C:\Users\marlon\LUMINE\models"
+            r"\yolov8n_strip_test\weights\best.onnx"
+        )
+
+        assert _resolve_model_path(stored_path, tmp_path / "models") == str(model_path)
+        assert _resolve_model_path(
+            r"C:\Users\marlon\LUMINE\models\missing\weights\best.onnx",
+            tmp_path / "models",
+        ) is None
+
     def test_flask_app_module_importable(self):
         """The app module must be parseable without opening the camera."""
         import importlib.util, sys

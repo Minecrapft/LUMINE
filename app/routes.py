@@ -41,6 +41,38 @@ def _make_qr_code_data_uri(url):
     return 'data:image/svg+xml;base64,' + base64.b64encode(output.getvalue()).decode('ascii')
 
 
+def _resolve_model_path(model_path, models_dir):
+    """Resolve a saved model path against this checkout's models directory."""
+    if not model_path:
+        return None
+
+    model_path = os.fspath(model_path)
+    if os.path.isfile(model_path):
+        return model_path
+
+    path_parts = model_path.replace('\\', '/').split('/')
+    models_index = next(
+        (index for index, part in enumerate(path_parts) if part.casefold() == 'models'),
+        None,
+    )
+    if models_index is None:
+        return None
+
+    relative_parts = path_parts[models_index + 1:]
+    if not relative_parts or any(part in {'', '.', '..'} for part in relative_parts):
+        return None
+
+    models_root = os.path.realpath(models_dir)
+    resolved_path = os.path.realpath(os.path.join(models_root, *relative_parts))
+    try:
+        if os.path.commonpath((models_root, resolved_path)) != models_root:
+            return None
+    except ValueError:
+        return None
+
+    return resolved_path if os.path.isfile(resolved_path) else None
+
+
 def _read_yolo_class_names(model_row, upload_dir):
     """Get the trained class order from model metadata or its imported dataset."""
     metrics = model_row.get('metrics') or {}
@@ -741,7 +773,14 @@ def analyze_image():
         yolo_row = db.get_active_model(test_profile, 'strip_detector')
         if not yolo_row:
             yolo_row = db.get_active_model('URS-4K', 'strip_detector')
-        if yolo_row and os.path.exists(yolo_row.get('model_path', '')):
+        models_dir = current_app.config.get('MODELS_DIR') or os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), 'models'
+        )
+        model_path = (
+            _resolve_model_path(yolo_row.get('model_path'), models_dir)
+            if yolo_row else None
+        )
+        if model_path:
             yolo_class_names = _read_yolo_class_names(
                 yolo_row, current_app.config.get('UPLOAD_DIR', 'uploads')
             )
@@ -752,9 +791,17 @@ def analyze_image():
                 )
             from app.image_processing.yolo_detector import ONNXYOLODetector
             yolo_detector = ONNXYOLODetector(
-                yolo_row['model_path'],
+                model_path,
                 conf_threshold=0.20,
                 class_names=yolo_class_names,
+            )
+        elif yolo_row:
+            logger.warning(
+                "Active YOLO model %s was not found at %r or under %s; "
+                "using CV contour fallback",
+                yolo_row.get('model_id'),
+                yolo_row.get('model_path'),
+                models_dir,
             )
     except Exception as exc:
         logger.warning(f"Could not load active YOLO strip detector: {exc}")
