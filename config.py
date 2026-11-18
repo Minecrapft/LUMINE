@@ -6,6 +6,20 @@ import logging
 import os
 import sys
 
+
+def _read_bool_env(name, default):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value, got {value!r}")
+
+
 class Config:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     DATABASE_PATH = os.path.join(BASE_DIR, 'lumine.db')
@@ -29,4 +43,4 @@ class Config:
     
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
     MODELS_DIR = os.path.join(BASE_DIR, "models")
-    DEMO_MODE = True
+    DEMO_MODE = _read_bool_env("DEMO_MODE", default=True)
