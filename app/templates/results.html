@@ -240,6 +240,22 @@
         </div>
     </div>
 
+    {% if show_followup_resources %}
+    <section class="followup-provider" aria-labelledby="followup-provider-title">
+        <div class="followup-provider-copy">
+            <h2 id="followup-provider-title">Discuss this result with a health professional</h2>
+            <p>This screening result is not a diagnosis. A qualified provider can review it and advise you on next steps.</p>
+            <a class="followup-provider-link" href="{{ followup_provider_url }}" target="_blank" rel="noopener noreferrer">
+                Find a general medicine provider in Surigao City
+            </a>
+        </div>
+        <div class="followup-provider-qr">
+            <img src="{{ followup_qr_data_uri }}" alt="QR code to find a general medicine provider in Surigao City">
+            <span>Scan to open the provider search</span>
+        </div>
+    </section>
+    {% endif %}
+
     <div class="actions-section">
         <a href="{{ url_for('main.history', patient_id=patient.patient_id) }}" class="btn-secondary">
             View History
@@ -455,6 +471,64 @@
 }
 .assessment-images-empty {
     color: #64748b;
+}
+.followup-provider {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    margin: 1.25rem 0;
+    padding: clamp(1rem, 3vw, 1.5rem);
+    border: 1px solid var(--lumine-line, #dce4ef);
+    border-left: 4px solid var(--lumine-blue, #2563eb);
+    border-radius: 0.7rem;
+    background: var(--lumine-paper, #fff);
+}
+.followup-provider-copy {
+    max-width: 62ch;
+}
+.followup-provider-copy h2 {
+    margin: 0 0 0.5rem;
+    color: var(--lumine-ink, #10233f);
+    font-size: 1.15rem;
+}
+.followup-provider-copy p {
+    margin: 0 0 0.8rem;
+    color: var(--lumine-muted, #5d6e83);
+    line-height: 1.5;
+}
+.followup-provider-link {
+    color: var(--lumine-blue, #2563eb);
+    font-weight: 650;
+    text-underline-offset: 0.2em;
+}
+.followup-provider-link:focus-visible {
+    outline: 3px solid #78a5ff;
+    outline-offset: 3px;
+}
+.followup-provider-qr {
+    display: grid;
+    justify-items: center;
+    gap: 0.4rem;
+    flex: 0 0 auto;
+    color: var(--lumine-muted, #5d6e83);
+    font-size: 0.78rem;
+    text-align: center;
+}
+.followup-provider-qr img {
+    display: block;
+    width: 9rem;
+    height: 9rem;
+    padding: 0.4rem;
+    border: 1px solid var(--lumine-line, #dce4ef);
+    border-radius: 0.4rem;
+    background: #fff;
+}
+@media (max-width: 560px) {
+    .followup-provider {
+        align-items: flex-start;
+        flex-direction: column;
+    }
 }
 </style>
 {% endblock %}

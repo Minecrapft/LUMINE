@@ -10,6 +10,7 @@ import sqlite3
 import math
 import ast
 import re
+import base64
 from datetime import datetime
 from flask import (
     Blueprint, Response, current_app, jsonify, render_template, request,
@@ -17,9 +18,27 @@ from flask import (
 )
 import cv2
 import numpy as np
+import qrcode
+from qrcode.image.svg import SvgPathImage
 from io import BytesIO
 
 logger = logging.getLogger(__name__)
+
+FOLLOWUP_PROVIDER_URL = (
+    'https://nowserving.ph/search/?locations=Surigao%20City,%20Surigao%20del%20Norte'
+    '&specializations=General%20Medicine&page=1'
+)
+
+
+def _make_qr_code_data_uri(url):
+    """Create an SVG QR code data URI without sending the URL to a third party."""
+    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=5, border=4)
+    qr.add_data(url)
+    qr.make(fit=True)
+    image = qr.make_image(image_factory=SvgPathImage)
+    output = BytesIO()
+    image.save(output)
+    return 'data:image/svg+xml;base64,' + base64.b64encode(output.getvalue()).decode('ascii')
 
 
 def _read_yolo_class_names(model_row, upload_dir):
@@ -215,12 +234,21 @@ def results(assessment_id):
     if not assessment:
         return render_template('error.html', error='Assessment not found'), 404
     patient = db.get_patient(assessment.get('patient_id'))
+    show_followup_resources = assessment.get('overall_status') in {
+        'attention', 'followup_recommended'
+    }
     return render_template(
         'results.html',
         assessment=assessment,
         patient=patient,
         has_source_image=bool(_assessment_image_path(assessment, 'source')),
-        has_analysis_overlay=bool(_assessment_image_path(assessment, 'overlay'))
+        has_analysis_overlay=bool(_assessment_image_path(assessment, 'overlay')),
+        show_followup_resources=show_followup_resources,
+        followup_provider_url=FOLLOWUP_PROVIDER_URL if show_followup_resources else None,
+        followup_qr_data_uri=(
+            _make_qr_code_data_uri(FOLLOWUP_PROVIDER_URL)
+            if show_followup_resources else None
+        )
     )
 
 

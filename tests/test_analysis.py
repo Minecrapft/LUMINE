@@ -5,6 +5,7 @@ Run with: pytest tests/test_analysis.py -v
 import sys
 import os
 import json
+import base64
 import uuid
 import pytest
 import numpy as np
@@ -749,6 +750,13 @@ class TestPhase0Smoke:
                 {"marker": "pH", "result": "7.0", "status": "normal"}
             ]
         })
+        followup_assessment_id = app.db.create_assessment({
+            "patient_id": patient_id,
+            "sample_type": "urine",
+            "test_profile": "URS-4K-4P",
+            "overall_status": "attention",
+            "flagged_markers": [{"marker": "protein", "result": "trace"}]
+        })
         app.db.log_action("test", "analysis_completed", "test assessment", first_assessment_id)
         client = app.test_client()
 
@@ -775,8 +783,23 @@ class TestPhase0Smoke:
         assert b"rgb(130, 180, 190)" in results_page.data
         assert b"rgb(236, 255, 255)" not in results_page.data
         assert b"rgb(142, 197, 199)" in results_page.data
+        assert b"Find a general medicine provider in Surigao City" not in results_page.data
+        assert b"data:image/svg+xml;base64," not in results_page.data
         assert results_page.data.index(b"RESEARCH USE ONLY") > results_page.data.index(b"Limitations")
         assert results_page.data.index(b"RESEARCH USE ONLY") < results_page.data.index(b"View History")
+        followup_page = client.get("/results/" + followup_assessment_id)
+        assert followup_page.status_code == 200
+        assert b"Find a general medicine provider in Surigao City" in followup_page.data
+        assert (
+            b'href="https://nowserving.ph/search/?locations=Surigao%20City,%20Surigao%20del%20Norte'
+            b'&amp;specializations=General%20Medicine&amp;page=1"'
+        ) in followup_page.data
+        assert b"data:image/svg+xml;base64," in followup_page.data
+        followup_html = followup_page.get_data(as_text=True)
+        qr_data = followup_html.split("data:image/svg+xml;base64,", 1)[1].split('"', 1)[0]
+        qr_svg = base64.b64decode(qr_data)
+        assert b"<svg" in qr_svg
+        assert b"Scan to open the provider search" in followup_page.data
         assert client.get(
             f"/assessments/{first_assessment_id}/image/source"
         ).data == b"source image"
@@ -813,7 +836,7 @@ class TestPhase0Smoke:
 
         deleted = client.delete("/api/patients/" + patient_id)
         assert deleted.status_code == 200
-        assert deleted.get_json()["deleted_assessments"] == 3
+        assert deleted.get_json()["deleted_assessments"] == 4
         assert app.db.get_patient(patient_id) is None
         assert app.db.get_patient_assessments(patient_id) == []
         assert not source_image.exists()

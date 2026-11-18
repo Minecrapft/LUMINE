@@ -98,6 +98,8 @@ python app.py
 
 Open http://localhost:5000
 
+On Raspberry Pi OS with Chromium installed, run `bash run.sh` from a terminal to start LUMINE and open it in fullscreen kiosk mode. If Chromium or a desktop session is unavailable, the server starts without opening a browser; visit `http://localhost:5000` manually.
+
 ### Environment Variables
 
 | Variable       | Default          | Purpose                                          |
