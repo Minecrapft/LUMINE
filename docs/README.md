@@ -32,6 +32,7 @@ LUMINE uses computer vision and colorimetric test-strip analysis to convert biol
 ### Hardware Requirements
 
 - Raspberry Pi 5
+- 64-bit Raspberry Pi OS Bookworm (Python 3.11)
 - 7-inch Touchscreen
 - 1080p Camera (Raspberry Pi Camera Module or USB)
 - JUSTO MOSFET Driver Module and 3 × 5V white LEDs
@@ -39,15 +40,21 @@ LUMINE uses computer vision and colorimetric test-strip analysis to convert biol
 - Strip Holder
 - Power Supply
 
-For LED control, install the Raspberry Pi OS `lgpio` package
-(`sudo apt install python3-lgpio`). If using a virtual environment, create it
-with `python3 -m venv --system-site-packages venv` so it can import the OS
-package, then install the project requirements. Run the Flask app on the Pi;
-the browser can connect from another device on the network. Connect GPIO 18 to
-the MOSFET module's PWM/input terminal and confirm the module accepts 3.3V logic.
-Power the LEDs from a separate 5V supply through the MOSFET; never connect the
-LED load directly to a Pi GPIO pin. Connect Pi ground to the module input ground
-when required by the module's wiring.
+Install the Raspberry Pi OS packages needed for GPIO and CSI camera support:
+
+```bash
+sudo apt update
+sudo apt install python3-venv python3-lgpio python3-picamera2
+```
+
+`run.sh` creates a virtual environment with system site packages on a Pi, making
+the OS-provided `lgpio` and Picamera2 modules available. Picamera2 is used for
+the CSI camera; USB UVC cameras use OpenCV. Run `bash run.sh` from any directory.
+The Flask app listens on the network so a browser can connect from another
+device. Connect GPIO 18 to the MOSFET module's PWM/input terminal and confirm
+the module accepts 3.3V logic. Power the LEDs from a separate 5V supply through
+the MOSFET; never connect the LED load directly to a Pi GPIO pin. Connect Pi
+ground to the module input ground when required by the module's wiring.
 
 ### Software Requirements
 
@@ -61,5 +68,6 @@ when required by the module's wiring.
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/Caisio/LUMINE.git
+git clone https://github.com/Minecrapft/LUMINE.git
 cd LUMINE
+bash run.sh

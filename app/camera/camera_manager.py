@@ -1,6 +1,4 @@
-"""
-LUMINE Camera Manager - OpenCV Only
-"""
+"""Camera manager using OpenCV for USB cameras and Picamera2 for CSI cameras."""
 
 import cv2
 import numpy as np
@@ -32,9 +30,10 @@ class CameraManager:
         self.lock = Lock()
         self.is_initialized = False
         self.last_frame = None
+        self._backend = "opencv"
     
     def initialize(self) -> bool:
-        """Initialize camera with OpenCV only."""
+        """Initialize an OpenCV camera, then fall back to Picamera2 on Linux."""
         try:
             with self.lock:
                 if self.is_initialized and self.camera is not None:
@@ -78,6 +77,7 @@ class CameraManager:
                         ret, test_frame = self.camera.read()
                         if ret and test_frame is not None and test_frame.size > 0:
                             self.is_initialized = True
+                            self._backend = "opencv"
                             w = self.camera.get(cv2.CAP_PROP_FRAME_WIDTH)
                             h = self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
                             fps = self.camera.get(cv2.CAP_PROP_FPS)
@@ -93,7 +93,10 @@ class CameraManager:
                         logger.warning(f"Camera {idx} backend {backend} failed to capture")
                         self.camera.release()
                         self.camera = None
-                
+
+                if sys.platform.startswith("linux") and self._initialize_picamera2():
+                    return True
+
                 logger.error("No working camera found")
                 return False
                 
@@ -101,6 +104,53 @@ class CameraManager:
             logger.error(f"Camera init failed: {e}")
             self.camera = None
             self.is_initialized = False
+            return False
+
+    def _initialize_picamera2(self) -> bool:
+        try:
+            from picamera2 import Picamera2
+        except ImportError:
+            logger.info("Picamera2 is unavailable; CSI camera capture is disabled")
+            return False
+
+        camera = None
+        started = False
+        try:
+            camera = Picamera2()
+            configuration = camera.create_video_configuration(
+                main={"size": self.resolution, "format": "RGB888"}
+            )
+            camera.configure(configuration)
+            camera.start()
+            started = True
+            time.sleep(0.5)
+            frame = camera.capture_array("main")
+            if frame is None or frame.size == 0:
+                raise RuntimeError("Picamera2 returned an empty frame")
+
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            self.camera = camera
+            self._backend = "picamera2"
+            self.last_frame = frame
+            self.is_initialized = True
+            logger.info(
+                "Picamera2 initialized at %sx%s",
+                frame.shape[1],
+                frame.shape[0],
+            )
+            return True
+        except Exception as exc:
+            logger.warning("Picamera2 initialization failed: %s", exc)
+            if camera is not None:
+                if started:
+                    try:
+                        camera.stop()
+                    except Exception as cleanup_error:
+                        logger.warning("Could not stop Picamera2 cleanly: %s", cleanup_error)
+                try:
+                    camera.close()
+                except Exception as cleanup_error:
+                    logger.warning("Could not close Picamera2 cleanly: %s", cleanup_error)
             return False
     
     def capture_frame(self, timeout: float = 5.0) -> Optional[np.ndarray]:
@@ -112,8 +162,15 @@ class CameraManager:
             with self.lock:
                 start = time.time()
                 while time.time() - start < timeout:
-                    ret, frame = self.camera.read()
-                    if ret and frame is not None and frame.size > 0:
+                    if self._backend == "picamera2":
+                        frame = self.camera.capture_array("main")
+                        if frame is not None and frame.size > 0:
+                            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    else:
+                        ret, frame = self.camera.read()
+                        if not ret:
+                            frame = None
+                    if frame is not None and frame.size > 0:
                         self.last_frame = frame
                         return frame
                     time.sleep(0.05)
@@ -148,6 +205,15 @@ class CameraManager:
         if not 0 <= value <= 255:
             raise ValueError("Focus must be between 0 and 255")
 
+        if self._backend == "picamera2":
+            logger.warning("Manual focus controls are not implemented for Picamera2")
+            return {
+                "supported": False,
+                "autofocus_disabled": False,
+                "requested_focus": float(value),
+                "focus_value": None,
+            }
+
         with self.lock:
             autofocus_set = self.camera.set(cv2.CAP_PROP_AUTOFOCUS, 0)
             focus_set = self.camera.set(cv2.CAP_PROP_FOCUS, float(value))
@@ -173,7 +239,7 @@ class CameraManager:
         info = {
             'initialized': self.is_initialized,
             'resolution': self.resolution,
-            'backend': 'opencv'
+            'backend': self._backend
         }
         if self.is_initialized and self.last_frame is not None:
             h, w = self.last_frame.shape[:2]
@@ -188,10 +254,23 @@ class CameraManager:
         """Release camera."""
         with self.lock:
             if self.camera:
-                self.camera.release()
-                self.camera = None
-            self.is_initialized = False
-            self.last_frame = None
+                camera = self.camera
+                try:
+                    if self._backend == "picamera2":
+                        try:
+                            camera.stop()
+                        finally:
+                            camera.close()
+                    else:
+                        camera.release()
+                finally:
+                    self.camera = None
+                    self.is_initialized = False
+                    self.last_frame = None
+                    self._backend = "opencv"
+            else:
+                self.is_initialized = False
+                self.last_frame = None
             logger.info("Camera released")
     
     def __enter__(self):

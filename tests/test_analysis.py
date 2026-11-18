@@ -473,6 +473,66 @@ class TestPhase0Smoke:
         assert capture.settings[camera_module.cv2.CAP_PROP_AUTOFOCUS] == 1
         camera.release()
 
+    def test_picamera2_fallback_captures_bgr_frames(self, monkeypatch):
+        import types
+        import app.camera.camera_manager as camera_module
+
+        class FailedCapture:
+            def isOpened(self):
+                return False
+
+            def release(self):
+                pass
+
+        class FakePicamera2:
+            def __init__(self):
+                self.stopped = False
+                self.closed = False
+                self.config = None
+
+            def create_video_configuration(self, **kwargs):
+                self.config = kwargs
+                return kwargs
+
+            def configure(self, configuration):
+                assert configuration == self.config
+
+            def start(self):
+                pass
+
+            def capture_array(self, stream):
+                assert stream == "main"
+                return np.full((8, 8, 3), (255, 0, 0), dtype=np.uint8)
+
+            def stop(self):
+                self.stopped = True
+
+            def close(self):
+                self.closed = True
+
+        picamera = FakePicamera2()
+        picamera2_module = types.ModuleType("picamera2")
+        picamera2_module.Picamera2 = lambda: picamera
+        monkeypatch.setitem(sys.modules, "picamera2", picamera2_module)
+        monkeypatch.setattr(
+            camera_module, "_capture_backends", lambda: [camera_module.cv2.CAP_ANY]
+        )
+        monkeypatch.setattr(camera_module.sys, "platform", "linux")
+        monkeypatch.setattr(
+            camera_module.cv2, "VideoCapture", lambda *_args: FailedCapture()
+        )
+        monkeypatch.setattr(camera_module.time, "sleep", lambda _seconds: None)
+
+        camera = camera_module.CameraManager()
+        assert camera.initialize() is True
+        assert camera.get_camera_info()["backend"] == "picamera2"
+        assert camera.capture_frame()[0, 0].tolist() == [0, 0, 255]
+        assert camera.set_manual_focus(176)["supported"] is False
+
+        camera.release()
+        assert picamera.stopped is True
+        assert picamera.closed is True
+
     def test_manual_focus_disables_autofocus_and_sets_focus_value(self, monkeypatch):
         import app.camera.camera_manager as camera_module
 
@@ -502,6 +562,19 @@ class TestPhase0Smoke:
         assert camera.camera.settings[camera_module.cv2.CAP_PROP_AUTOFOCUS] == 0
         assert camera.camera.settings[camera_module.cv2.CAP_PROP_FOCUS] == 176.0
         camera.release()
+
+    def test_boolean_environment_values_are_parsed_explicitly(self, monkeypatch):
+        from config import _read_bool_env
+
+        monkeypatch.setenv("LUMINE_TEST_FLAG", "false")
+        assert _read_bool_env("LUMINE_TEST_FLAG", default=True) is False
+
+        monkeypatch.setenv("LUMINE_TEST_FLAG", "yes")
+        assert _read_bool_env("LUMINE_TEST_FLAG", default=False) is True
+
+        monkeypatch.setenv("LUMINE_TEST_FLAG", "sometimes")
+        with pytest.raises(ValueError, match="LUMINE_TEST_FLAG"):
+            _read_bool_env("LUMINE_TEST_FLAG", default=True)
 
     def test_manual_focus_endpoint_validates_and_reports_unsupported_camera(self, tmp_path):
         from flask import Flask
