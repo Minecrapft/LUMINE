@@ -698,7 +698,15 @@ def control_illumination():
         }), 503
 
     if request.method == 'GET':
-        status = controller.status()
+        try:
+            status = controller.status()
+        except Exception as exc:
+            logger.exception("Unexpected strip-light status failure")
+            return jsonify({
+                'success': False,
+                'available': False,
+                'error': f'Strip-light status failed: {exc}',
+            }), 503
         return jsonify({'success': status['available'], **status}), (
             200 if status['available'] else 503
         )
@@ -723,6 +731,13 @@ def control_illumination():
         return jsonify({'success': False, 'available': False, 'error': str(exc)}), 503
     except ValueError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Unexpected strip-light brightness failure")
+        return jsonify({
+            'success': False,
+            'available': False,
+            'error': f'Strip-light brightness failed: {exc}',
+        }), 503
     return jsonify({'success': True, **result})
 
 @main_bp.route('/api/camera/capture', methods=['POST'])

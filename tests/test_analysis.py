@@ -725,6 +725,15 @@ class TestPhase0Smoke:
         assert response.status_code == 200
         assert response.get_json()["brightness"] == 40
         assert output.value == 0.4
+
+        def broken_status():
+            raise RuntimeError("simulated GPIO backend failure")
+
+        app.illumination.status = broken_status
+        failed_status = client.get("/api/illumination/brightness")
+        assert failed_status.status_code == 503
+        assert failed_status.is_json
+        assert "simulated GPIO backend failure" in failed_status.get_json()["error"]
         app.illumination.close()
 
     def test_camera_capture_saves_image_with_preview_orientation(self, tmp_path, monkeypatch):
