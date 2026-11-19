@@ -697,17 +697,7 @@ class TestPhase0Smoke:
         assert output.value == 0
         assert output.closed is True
 
-    def test_find_rp1_gpiochip_from_sysfs_label(self, tmp_path):
-        from app.hardware.illumination import _find_rp1_gpiochip
-
-        for index, label in ((11, "other-controller"), (15, "pinctrl-rp1")):
-            chip_path = tmp_path / f"gpiochip{index}"
-            chip_path.mkdir()
-            (chip_path / "label").write_text(label, encoding="ascii")
-
-        assert _find_rp1_gpiochip((tmp_path,)) == 15
-
-    def test_find_rp1_gpiochip_from_gpiodetect(self, tmp_path, monkeypatch):
+    def test_find_rp1_gpiochip_from_gpiodetect(self, monkeypatch):
         from types import SimpleNamespace
 
         import app.hardware.illumination as illumination
@@ -721,7 +711,7 @@ class TestPhase0Smoke:
 
         monkeypatch.setattr(illumination.subprocess, "run", fake_run)
 
-        assert illumination._find_rp1_gpiochip((tmp_path,)) == 15
+        assert illumination._find_rp1_gpiochip() == 15
 
     def test_illumination_controller_uses_detected_rp1_gpiochip(self, monkeypatch):
         import sys

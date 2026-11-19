@@ -7,30 +7,13 @@ import re
 import subprocess
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 
-def _find_rp1_gpiochip(
-    sysfs_roots: Optional[Tuple[Path, ...]] = None,
-) -> Optional[int]:
-    """Find the Raspberry Pi 5 RP1 GPIO chip number from its kernel label."""
-    if sysfs_roots is None:
-        sysfs_roots = (
-            Path("/sys/bus/gpio/devices"),
-            Path("/sys/class/gpio"),
-        )
-    for root in sysfs_roots:
-        for chip_path in root.glob("gpiochip*"):
-            try:
-                chip_index = int(chip_path.name[len("gpiochip"):])
-                label = (chip_path / "label").read_text(encoding="ascii").strip()
-            except (OSError, ValueError):
-                continue
-            if label == "pinctrl-rp1":
-                return chip_index
-
+def _find_rp1_gpiochip() -> Optional[int]:
+    """Find the /dev/gpiochip index for the Raspberry Pi 5 RP1 controller."""
     try:
         result = subprocess.run(
             ["gpiodetect"],
@@ -95,7 +78,7 @@ class IlluminationController:
         if chip_index is None and _is_raspberry_pi5():
             raise IlluminationUnavailable(
                 "Could not find the Raspberry Pi 5 RP1 GPIO chip. "
-                "Check that /sys/class/gpio exposes its label or install gpiodetect."
+                "Install gpiodetect and confirm it lists pinctrl-rp1."
             )
         try:
             factory = LGPIOFactory(chip=chip_index)
