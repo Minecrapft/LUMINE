@@ -137,6 +137,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const sampleType = {{ sample_type|tojson }};
     const testProfile = {{ test_profile|tojson }};
 
+    async function readApiResponse(response, serviceName) {
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.toLowerCase().includes('application/json')) {
+            throw new Error(
+                `${serviceName} endpoint returned a web page instead of JSON ` +
+                `(HTTP ${response.status}). Update and restart the LUMINE server.`
+            );
+        }
+        return response.json();
+    }
+
     frame.addEventListener('load', function() {
         statusEl.textContent = 'Ready to take a photo';
         statusEl.style.color = '#16a34a';
@@ -161,7 +172,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: JSON.stringify({value})
             })
             .then(async response => {
-                const data = await response.json();
+                const data = await readApiResponse(response, 'Camera focus');
                 if (!response.ok || !data.success) {
                     throw new Error(data.error || 'Could not adjust focus.');
                 }
@@ -181,7 +192,7 @@ document.addEventListener('DOMContentLoaded', function() {
             body: JSON.stringify({value})
         })
         .then(async response => {
-            const data = await response.json();
+            const data = await readApiResponse(response, 'Strip-light');
             if (!response.ok || !data.success) {
                 throw new Error(data.error || 'Could not set strip-light brightness.');
             }
@@ -195,7 +206,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     fetch('/api/illumination/brightness')
     .then(async response => {
-        const data = await response.json();
+        const data = await readApiResponse(response, 'Strip-light');
         if (!response.ok || !data.success) {
             throw new Error(data.error || 'GPIO 18 is unavailable.');
         }
