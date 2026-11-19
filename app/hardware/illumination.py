@@ -24,11 +24,18 @@ class IlluminationController:
 
     def _create_device(self):
         if self._device_factory is not None:
-            return self._device_factory()
+            try:
+                return self._device_factory()
+            except Exception as exc:
+                logger.exception("Could not initialize strip-light output")
+                raise IlluminationUnavailable(
+                    f"Could not initialize BCM GPIO 18: {exc}. Check that the "
+                    "LUMINE user can read and write the Raspberry Pi GPIO chip "
+                    "device (usually through the gpio group)."
+                ) from exc
 
         try:
             from gpiozero import PWMOutputDevice
-            from gpiozero.exc import GPIOZeroError
             from gpiozero.pins.lgpio import LGPIOFactory
         except ImportError as exc:
             raise IlluminationUnavailable(
@@ -44,9 +51,12 @@ class IlluminationController:
                 frequency=1000,
                 pin_factory=factory,
             )
-        except (GPIOZeroError, ImportError, OSError, RuntimeError, ValueError) as exc:
+        except Exception as exc:
+            logger.exception("Could not initialize strip-light output")
             raise IlluminationUnavailable(
-                f"Could not initialize PWM on GPIO 18: {exc}"
+                f"Could not initialize BCM GPIO 18: {exc}. Check that the "
+                "LUMINE user can read and write the Raspberry Pi GPIO chip "
+                "device (usually through the gpio group)."
             ) from exc
 
     def _get_device(self):

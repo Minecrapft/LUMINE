@@ -697,6 +697,21 @@ class TestPhase0Smoke:
         assert output.value == 0
         assert output.closed is True
 
+    def test_illumination_controller_explains_gpiochip_access_failure(self):
+        from app.hardware.illumination import IlluminationController
+
+        def fail_to_open_gpiochip():
+            raise RuntimeError("can not open gpiochip")
+
+        status = IlluminationController(
+            device_factory=fail_to_open_gpiochip
+        ).status()
+
+        assert status["available"] is False
+        assert "can not open gpiochip" in status["error"]
+        assert "read and write" in status["error"]
+        assert "gpio group" in status["error"]
+
     def test_illumination_endpoint_validates_and_sets_brightness(self, tmp_path):
         from flask import Flask
         from app.database.db_manager import DatabaseManager
