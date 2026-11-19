@@ -3,26 +3,59 @@
 import atexit
 import logging
 import math
+import re
+import subprocess
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 def _find_rp1_gpiochip(
-    sysfs_root: Path = Path("/sys/bus/gpio/devices"),
+    sysfs_roots: Optional[Tuple[Path, ...]] = None,
 ) -> Optional[int]:
     """Find the Raspberry Pi 5 RP1 GPIO chip number from its kernel label."""
-    for chip_path in sysfs_root.glob("gpiochip*"):
-        try:
-            chip_index = int(chip_path.name[len("gpiochip"):])
-            label = (chip_path / "label").read_text(encoding="ascii").strip()
-        except (OSError, ValueError):
-            continue
-        if label == "pinctrl-rp1":
-            return chip_index
+    if sysfs_roots is None:
+        sysfs_roots = (
+            Path("/sys/bus/gpio/devices"),
+            Path("/sys/class/gpio"),
+        )
+    for root in sysfs_roots:
+        for chip_path in root.glob("gpiochip*"):
+            try:
+                chip_index = int(chip_path.name[len("gpiochip"):])
+                label = (chip_path / "label").read_text(encoding="ascii").strip()
+            except (OSError, ValueError):
+                continue
+            if label == "pinctrl-rp1":
+                return chip_index
+
+    try:
+        result = subprocess.run(
+            ["gpiodetect"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.debug("Could not query GPIO chip labels with gpiodetect: %s", exc)
+        return None
+
+    for line in result.stdout.splitlines():
+        match = re.match(r"^gpiochip(\d+)\s+\[pinctrl-rp1\](?:\s|$)", line)
+        if match:
+            return int(match.group(1))
     return None
+
+
+def _is_raspberry_pi5() -> bool:
+    try:
+        model = Path("/proc/device-tree/model").read_text(encoding="ascii").strip("\x00")
+    except OSError:
+        return False
+    return "raspberry pi 5" in model.lower()
 
 
 class IlluminationUnavailable(RuntimeError):
@@ -59,6 +92,11 @@ class IlluminationController:
             ) from exc
 
         chip_index = _find_rp1_gpiochip()
+        if chip_index is None and _is_raspberry_pi5():
+            raise IlluminationUnavailable(
+                "Could not find the Raspberry Pi 5 RP1 GPIO chip. "
+                "Check that /sys/class/gpio exposes its label or install gpiodetect."
+            )
         try:
             factory = LGPIOFactory(chip=chip_index)
             return PWMOutputDevice(

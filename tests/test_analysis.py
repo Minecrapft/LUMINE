@@ -705,7 +705,23 @@ class TestPhase0Smoke:
             chip_path.mkdir()
             (chip_path / "label").write_text(label, encoding="ascii")
 
-        assert _find_rp1_gpiochip(tmp_path) == 15
+        assert _find_rp1_gpiochip((tmp_path,)) == 15
+
+    def test_find_rp1_gpiochip_from_gpiodetect(self, tmp_path, monkeypatch):
+        from types import SimpleNamespace
+
+        import app.hardware.illumination as illumination
+
+        def fake_run(command, **kwargs):
+            assert command == ["gpiodetect"]
+            return SimpleNamespace(
+                stdout="gpiochip11 [other-controller] (4 lines)\n"
+                "gpiochip15 [pinctrl-rp1] (54 lines)\n"
+            )
+
+        monkeypatch.setattr(illumination.subprocess, "run", fake_run)
+
+        assert illumination._find_rp1_gpiochip((tmp_path,)) == 15
 
     def test_illumination_controller_uses_detected_rp1_gpiochip(self, monkeypatch):
         import sys
@@ -735,6 +751,34 @@ class TestPhase0Smoke:
 
         assert selected_chips == [15]
         assert device["pin"] == 18
+
+    def test_pi5_does_not_fall_back_to_gpiozero_default_chip(self, monkeypatch):
+        import sys
+        from types import ModuleType
+
+        import app.hardware.illumination as illumination
+
+        gpiozero = ModuleType("gpiozero")
+        gpiozero.__path__ = []
+        gpiozero.PWMOutputDevice = lambda **kwargs: kwargs
+        pins = ModuleType("gpiozero.pins")
+        pins.__path__ = []
+        lgpio = ModuleType("gpiozero.pins.lgpio")
+        factory_calls = []
+        lgpio.LGPIOFactory = lambda chip=None: factory_calls.append(chip)
+        monkeypatch.setitem(sys.modules, "gpiozero", gpiozero)
+        monkeypatch.setitem(sys.modules, "gpiozero.pins", pins)
+        monkeypatch.setitem(sys.modules, "gpiozero.pins.lgpio", lgpio)
+        monkeypatch.setattr(illumination, "_find_rp1_gpiochip", lambda: None)
+        monkeypatch.setattr(illumination, "_is_raspberry_pi5", lambda: True)
+
+        with pytest.raises(
+            illumination.IlluminationUnavailable,
+            match="[Cc]ould not find the Raspberry Pi 5 RP1 GPIO chip",
+        ):
+            illumination.IlluminationController()._create_device()
+
+        assert factory_calls == []
 
     def test_illumination_controller_explains_gpiochip_access_failure(self):
         from app.hardware.illumination import IlluminationController
