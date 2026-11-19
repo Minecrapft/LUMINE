@@ -3,10 +3,26 @@
 import atexit
 import logging
 import math
+from pathlib import Path
 from threading import Lock
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _find_rp1_gpiochip(
+    sysfs_root: Path = Path("/sys/bus/gpio/devices"),
+) -> Optional[int]:
+    """Find the Raspberry Pi 5 RP1 GPIO chip number from its kernel label."""
+    for chip_path in sysfs_root.glob("gpiochip*"):
+        try:
+            chip_index = int(chip_path.name[len("gpiochip"):])
+            label = (chip_path / "label").read_text(encoding="ascii").strip()
+        except (OSError, ValueError):
+            continue
+        if label == "pinctrl-rp1":
+            return chip_index
+    return None
 
 
 class IlluminationUnavailable(RuntimeError):
@@ -42,8 +58,9 @@ class IlluminationController:
                 "GPIO support is unavailable. Install gpiozero and lgpio on the Raspberry Pi."
             ) from exc
 
+        chip_index = _find_rp1_gpiochip()
         try:
-            factory = LGPIOFactory()
+            factory = LGPIOFactory(chip=chip_index)
             return PWMOutputDevice(
                 pin=18,
                 active_high=True,
@@ -53,10 +70,15 @@ class IlluminationController:
             )
         except Exception as exc:
             logger.exception("Could not initialize strip-light output")
+            gpio_device = (
+                f"/dev/gpiochip{chip_index}"
+                if chip_index is not None
+                else "the Raspberry Pi GPIO chip device"
+            )
             raise IlluminationUnavailable(
                 f"Could not initialize BCM GPIO 18: {exc}. Check that the "
-                "LUMINE user can read and write the Raspberry Pi GPIO chip "
-                "device (usually through the gpio group)."
+                f"LUMINE user can read and write {gpio_device} "
+                "(usually through the gpio group)."
             ) from exc
 
     def _get_device(self):

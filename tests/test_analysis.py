@@ -697,6 +697,45 @@ class TestPhase0Smoke:
         assert output.value == 0
         assert output.closed is True
 
+    def test_find_rp1_gpiochip_from_sysfs_label(self, tmp_path):
+        from app.hardware.illumination import _find_rp1_gpiochip
+
+        for index, label in ((11, "other-controller"), (15, "pinctrl-rp1")):
+            chip_path = tmp_path / f"gpiochip{index}"
+            chip_path.mkdir()
+            (chip_path / "label").write_text(label, encoding="ascii")
+
+        assert _find_rp1_gpiochip(tmp_path) == 15
+
+    def test_illumination_controller_uses_detected_rp1_gpiochip(self, monkeypatch):
+        import sys
+        from types import ModuleType
+
+        import app.hardware.illumination as illumination
+
+        selected_chips = []
+        gpiozero = ModuleType("gpiozero")
+        gpiozero.__path__ = []
+        gpiozero.PWMOutputDevice = lambda **kwargs: kwargs
+        pins = ModuleType("gpiozero.pins")
+        pins.__path__ = []
+        lgpio = ModuleType("gpiozero.pins.lgpio")
+
+        def fake_factory(chip=None):
+            selected_chips.append(chip)
+            return object()
+
+        lgpio.LGPIOFactory = fake_factory
+        monkeypatch.setitem(sys.modules, "gpiozero", gpiozero)
+        monkeypatch.setitem(sys.modules, "gpiozero.pins", pins)
+        monkeypatch.setitem(sys.modules, "gpiozero.pins.lgpio", lgpio)
+        monkeypatch.setattr(illumination, "_find_rp1_gpiochip", lambda: 15)
+
+        device = illumination.IlluminationController()._create_device()
+
+        assert selected_chips == [15]
+        assert device["pin"] == 18
+
     def test_illumination_controller_explains_gpiochip_access_failure(self):
         from app.hardware.illumination import IlluminationController
 

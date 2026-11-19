@@ -8,7 +8,7 @@ Flask-CORS==4.0.0
 # Camera
 opencv-python-headless==4.8.1.78  # headless: works on Raspberry Pi and servers without display
 numpy==1.24.3
-gpiozero==2.0.1  # Raspberry Pi GPIO PWM output for camera illumination
+gpiozero==2.0.1.post3  # Raspberry Pi GPIO PWM output for camera illumination
 
 # Image Processing
 Pillow==10.0.1
