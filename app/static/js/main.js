@@ -165,23 +165,37 @@ function formatInput(input) {
 // ========================================
 
 function createTrendChart(canvasId, data, labels, options = {}) {
-    // Simple canvas-based trend chart
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     
     const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    const padding = 40;
+    const width = Math.max(canvas.clientWidth, 280);
+    const height = Math.max(canvas.clientHeight, 120);
+    const pixelRatio = window.devicePixelRatio || 1;
+    const pixelWidth = Math.round(width * pixelRatio);
+    const pixelHeight = Math.round(height * pixelRatio);
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+    }
+    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    const padding = 22;
     
-    // Clear
     ctx.clearRect(0, 0, width, height);
     
-    if (!data || data.length < 2) {
+    if (!data || data.length === 0) {
         ctx.fillStyle = '#8a9baa';
-        ctx.font = '14px Inter, sans-serif';
+        ctx.font = '13px Inter, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('Insufficient data for trend', width/2, height/2);
+        ctx.fillText('No numeric readings to chart', width / 2, height / 2);
+        return;
+    }
+
+    if (data.length < 2) {
+        ctx.fillStyle = '#526b68';
+        ctx.font = '13px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Add another screening to see a trend', width / 2, height / 2);
         return;
     }
     
@@ -225,10 +239,10 @@ function createTrendChart(canvasId, data, labels, options = {}) {
     
     // Draw labels
     ctx.fillStyle = '#8a9baa';
-    ctx.font = '10px Inter, sans-serif';
+    ctx.font = '12px Inter, sans-serif';
     ctx.textAlign = 'center';
     
-    const step = Math.max(1, Math.floor(data.length / 6));
+    const step = Math.max(1, Math.ceil(data.length / 6));
     points.forEach((p, i) => {
         if (i % step === 0 || i === data.length - 1) {
             const label = labels[i] || '';

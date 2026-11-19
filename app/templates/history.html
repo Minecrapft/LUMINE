@@ -2,6 +2,10 @@
 
 {% block content %}
 <div class="history-container">
+    <div id="assessments-data"
+         data-assessments="{{ assessments|tojson|forceescape }}"
+         hidden></div>
+
     <div class="history-header">
         <h1 class="page-title">Patient History</h1>
         <div class="patient-info">
@@ -152,19 +156,41 @@
     <div class="tab-content" id="tab-trends">
         <div class="trends-container">
             <h3>Marker Trends</h3>
-            <p class="trends-subtitle">Track changes over time for key markers</p>
+            <p class="trends-subtitle">Compare screenings that used the same strip.</p>
 
-            {% for marker in history_markers %}
-            <div class="trend-card">
-                <div class="trend-header">
-                    <span class="trend-name">{% if marker == 'pH' %}pH{% else %}{{ marker|replace('_', ' ')|title }}{% endif %}</span>
-                    <span class="trend-status" id="trend-status-{{ marker }}">No data</span>
-                </div>
-                <canvas class="trend-chart" id="chart-{{ marker }}" width="400" height="100"></canvas>
+            {% if trend_profiles %}
+            <div class="trend-profile-control">
+                <label for="trend-profile">Strip type</label>
+                <select id="trend-profile">
+                    {% for profile in trend_profiles %}
+                    <option value="{{ profile.profile_id }}" {% if loop.first %}selected{% endif %}>
+                        {{ profile.name }}
+                    </option>
+                    {% endfor %}
+                </select>
             </div>
+
+            {% for profile in trend_profiles %}
+            <div class="trend-profile-panel" data-profile-id="{{ profile.profile_id }}"
+                 {% if not loop.first %}hidden{% endif %}>
+                {% if profile.markers %}
+                {% for marker in profile.markers %}
+                <div class="trend-card">
+                    <div class="trend-header">
+                        <span class="trend-name">{% if marker == 'pH' %}pH{% else %}{{ marker|replace('_', ' ')|title }}{% endif %}</span>
+                        <span class="trend-status" id="trend-status-{{ profile.profile_id|lower|replace(' ', '-') }}-{{ marker|lower|replace(' ', '-') }}">No data</span>
+                    </div>
+                    <canvas class="trend-chart" id="chart-{{ profile.profile_id|lower|replace(' ', '-') }}-{{ marker|lower|replace(' ', '-') }}" width="400" height="120"></canvas>
+                </div>
+                {% endfor %}
+                {% else %}
+                <p>No marker readings were recorded for this strip.</p>
+                {% endif %}
+            </div>
+            {% endfor %}
             {% else %}
             <p>No marker results are available to trend yet.</p>
-            {% endfor %}
+            {% endif %}
         </div>
     </div>
 
@@ -508,9 +534,31 @@
     font-size: 0.8rem;
     font-weight: 500;
 }
+.trend-profile-control {
+    display: grid;
+    gap: 6px;
+    max-width: 420px;
+    margin: 16px 0;
+}
+.trend-profile-control label {
+    font-weight: 600;
+}
+.trend-profile-control select {
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #1e293b;
+    font: inherit;
+}
+.trend-profile-panel[hidden] {
+    display: none;
+}
 .trend-chart {
+    display: block;
     width: 100%;
-    height: 80px;
+    height: 120px;
 }
 .summary-grid {
     display: grid;
@@ -626,6 +674,8 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     });
 
+    var renderSelectedTrendProfile = function() {};
+
     // Tab switching
     document.querySelectorAll('.tab-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
@@ -638,6 +688,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 c.classList.remove('active');
             });
             document.getElementById('tab-' + tab).classList.add('active');
+            if (tab === 'trends') {
+                window.requestAnimationFrame(renderSelectedTrendProfile);
+            }
         });
     });
 
@@ -645,48 +698,81 @@ document.addEventListener('DOMContentLoaded', function() {
     var dataElement = document.getElementById('assessments-data');
     if (dataElement) {
         var assessments = JSON.parse(dataElement.getAttribute('data-assessments') || '[]');
-        var markers = {{ history_markers|tojson }};
+        var trendProfiles = {{ trend_profiles|tojson }};
+        var trendProfileSelect = document.getElementById('trend-profile');
 
-        markers.forEach(function(marker) {
-            var data = [];
-            var labels = [];
-            var hasData = false;
-
-            var reversed = assessments.slice().reverse();
-            reversed.forEach(function(a) {
-                var markerResult = (a.marker_results || []).find(function(m) {
-                    return m.marker === marker;
-                });
-                if (markerResult) {
-                    var value = parseFloat(markerResult.result) || 0;
-                    data.push(value);
-                    labels.push(a.date.slice(5, 10));
-                    hasData = true;
-                }
+        function renderTrendProfile(profileId) {
+            document.querySelectorAll('.trend-profile-panel').forEach(function(panel) {
+                panel.hidden = panel.dataset.profileId !== profileId;
             });
 
-            if (hasData && window.LUMINE) {
-                window.LUMINE.createTrendChart('chart-' + marker, data, labels);
-                
-                var statusEl = document.getElementById('trend-status-' + marker);
-                if (data.length > 0) {
-                    var lastValue = data[data.length - 1];
-                    var firstValue = data[0];
-                    var diff = lastValue - firstValue;
-                    
-                    if (Math.abs(diff) < 0.1) {
-                        statusEl.textContent = 'Stable';
-                        statusEl.style.color = '#16a34a';
-                    } else if (diff > 0) {
-                        statusEl.textContent = 'Increasing ↑';
-                        statusEl.style.color = '#d97706';
-                    } else {
-                        statusEl.textContent = 'Decreasing ↓';
-                        statusEl.style.color = '#2563eb';
+            var profile = trendProfiles.find(function(item) {
+                return item.profile_id === profileId;
+            });
+            if (!profile || !window.LUMINE) return;
+
+            var profileAssessments = assessments
+                .filter(function(assessment) {
+                    return (assessment.test_profile || '__unknown__') === profileId;
+                })
+                .reverse();
+
+            profile.markers.forEach(function(marker) {
+                var data = [];
+                var labels = [];
+
+                profileAssessments.forEach(function(assessment) {
+                    var markerResult = (assessment.marker_results || []).find(function(result) {
+                        return result.marker === marker;
+                    });
+                    if (markerResult) {
+                        data.push(parseFloat(markerResult.result) || 0);
+                        labels.push(String(assessment.date || '').slice(5, 10));
                     }
+                });
+
+                var profileKey = profileId.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+                var markerKey = marker.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+                window.LUMINE.createTrendChart(
+                    'chart-' + profileKey + '-' + markerKey,
+                    data,
+                    labels
+                );
+
+                var statusEl = document.getElementById(
+                    'trend-status-' + profileKey + '-' + markerKey
+                );
+                if (!statusEl || data.length === 0) return;
+                if (data.length < 2) {
+                    statusEl.textContent = 'One screening so far';
+                    statusEl.style.color = '#526b68';
+                    return;
                 }
+
+                var diff = data[data.length - 1] - data[0];
+                if (Math.abs(diff) < 0.1) {
+                    statusEl.textContent = 'Stable';
+                    statusEl.style.color = '#16a34a';
+                } else if (diff > 0) {
+                    statusEl.textContent = 'Increasing ↑';
+                    statusEl.style.color = '#d97706';
+                } else {
+                    statusEl.textContent = 'Decreasing ↓';
+                    statusEl.style.color = '#2563eb';
+                }
+            });
+        }
+
+        renderSelectedTrendProfile = function() {
+            if (trendProfileSelect) {
+                renderTrendProfile(trendProfileSelect.value);
             }
-        });
+        };
+
+        if (trendProfileSelect) {
+            trendProfileSelect.addEventListener('change', renderSelectedTrendProfile);
+            window.addEventListener('resize', renderSelectedTrendProfile);
+        }
     }
 });
 </script>

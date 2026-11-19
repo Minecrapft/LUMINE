@@ -2,57 +2,57 @@
 
 {% block content %}
 <div class="screening-container">
-    <h1 class="page-title">New Screening</h1>
-    <p class="page-subtitle">Guided workflow for sample collection and analysis</p>
+    <h1 class="page-title">Start a screening</h1>
+    <p class="page-subtitle">Choose a person and test, then take a clear photo of the strip.</p>
     
     <div class="screening-steps">
         <div class="step active">
             <span class="step-number">1</span>
-            <span class="step-label">Select Patient</span>
+            <span class="step-label">Choose person</span>
         </div>
         <div class="step">
             <span class="step-number">2</span>
-            <span class="step-label">Select Sample</span>
+            <span class="step-label">Choose sample</span>
         </div>
         <div class="step">
             <span class="step-number">3</span>
-            <span class="step-label">Select Test</span>
+            <span class="step-label">Choose test</span>
         </div>
         <div class="step">
             <span class="step-number">4</span>
-            <span class="step-label">Capture</span>
+            <span class="step-label">Take photo</span>
         </div>
         <div class="step">
             <span class="step-number">5</span>
-            <span class="step-label">Results</span>
+            <span class="step-label">Review result</span>
         </div>
     </div>
 
     <div class="screening-form">
         <!-- Step 1: Patient Selection -->
         <div class="step-content" id="step1">
-            <h3>Select Patient</h3>
+            <h3>Choose a person</h3>
             <div class="patient-search" {% if selected_patient %}style="display:none;"{% endif %}>
                 <input type="text" id="patientSearch" placeholder="Search by name or ID..." 
                        class="search-input" autocomplete="off">
                 <div class="patient-results" id="patientResults"></div>
             </div>
             <div class="quick-actions" {% if selected_patient %}style="display:none;"{% endif %}>
-                <button class="btn-secondary" id="newPatientBtn">+ New Patient</button>
+                <button class="btn-secondary" id="newPatientBtn">+ Add person</button>
             </div>
             <div class="selected-patient" id="selectedPatient" {% if not selected_patient %}style="display:none;"{% endif %}>
                 <div class="patient-card">
                     <span class="patient-name" id="selectedName">{% if selected_patient %}{{ selected_patient.first_name }} {{ selected_patient.last_name }}{% endif %}</span>
                     <span class="patient-detail" id="selectedDetail">{% if selected_patient %}ID: {{ selected_patient.patient_id }}{% endif %}</span>
-                    <button class="btn-small" id="changePatientBtn">Change</button>
+                    <button class="btn-small" id="changePatientBtn">Choose another person</button>
                 </div>
             </div>
-            <button class="btn-primary next-step" data-next="2" disabled id="step1Next">Next</button>
+            <button class="btn-primary next-step" data-next="2" disabled id="step1Next">Continue</button>
         </div>
 
         <!-- Step 2: Sample Selection -->
         <div class="step-content" id="step2" style="display:none;">
-            <h3>Select Sample Type</h3>
+            <h3>Choose a sample</h3>
             <div class="sample-options">
                 <button type="button" class="sample-option selected" data-sample="urine" aria-pressed="true">
                     <span class="sample-name">Urine</span>
@@ -64,19 +64,19 @@
                     <span class="sample-badge experimental">Research</span>
                 </button>
             </div>
-            <button class="btn-primary next-step" data-next="3" id="step2Next">Next</button>
+            <button class="btn-primary next-step" data-next="3" id="step2Next">Continue</button>
         </div>
 
         <!-- Step 3: Test Selection -->
         <div class="step-content" id="step3" style="display:none;">
-            <h3>Select Test Profile</h3>
+            <h3>Choose a test</h3>
             <div class="test-options">
                 {% for profile in test_profiles %}
                 <div class="test-option{% if profile.profile_id == 'URS-4K' %} selected{% endif %}"
                      data-test="{{ profile.profile_id }}" data-sample="{{ profile.sample_type }}">
                     <span class="test-name">{{ profile.name }}</span>
                     <span class="test-detail">
-                        {{ profile.configuration.markers|length }} parameters:
+                        {{ profile.configuration.markers|length }} readings:
                         {% for marker in profile.configuration.markers %}
                             {% if marker == 'pH' %}pH{% else %}{{ marker|replace('_', ' ')|title }}{% endif %}{% if not loop.last %}, {% endif %}
                         {% endfor %}
@@ -87,7 +87,7 @@
                 </div>
                 {% endfor %}
             </div>
-            <button class="btn-primary" id="startCaptureBtn">Start Camera</button>
+            <button class="btn-primary" id="startCaptureBtn">Take a photo</button>
         </div>
     </div>
 </div>
@@ -96,7 +96,7 @@
 <div class="modal-overlay" id="patientModal" style="display:none;">
     <div class="modal">
         <div class="modal-header">
-            <h2 id="modalTitle">Add Patient</h2>
+            <h2 id="modalTitle">Add person</h2>
             <button class="modal-close" id="modalClose">×</button>
         </div>
         <div class="modal-body">
@@ -176,7 +176,7 @@
         </div>
         <div class="modal-footer">
             <button class="btn-secondary" id="modalCancel">Cancel</button>
-            <button class="btn-primary" id="modalSave">Save Patient</button>
+            <button class="btn-primary" id="modalSave">Save person</button>
         </div>
     </div>
 </div>
@@ -726,7 +726,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function openModal() {
         document.getElementById('editPatientId').value = '';
         document.getElementById('patientForm').reset();
-        document.getElementById('modalTitle').textContent = 'Add Patient';
+        document.getElementById('modalTitle').textContent = 'Add person';
         modal.style.display = 'flex';
     }
 
@@ -772,7 +772,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(result => {
             if (result.success) {
                 closeModal();
-                alert('Patient created successfully!');
+                alert('Person added.');
                 // Auto-select the new patient
                 selectPatient(result.patient_id, data.first_name + ' ' + data.last_name);
             } else {

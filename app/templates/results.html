@@ -6,20 +6,20 @@
         <h1 class="page-title">Screening Results</h1>
         <div class="results-meta">
             <span class="meta-item">Date: {{ assessment.date[:10] }}</span>
-            <span class="meta-item">Patient: {{ patient.first_name }} {{ patient.last_name }}</span>
+            <span class="meta-item">Person: {{ patient.first_name }} {{ patient.last_name }}</span>
             <span class="meta-item">Test: {{ assessment.test_profile }}</span>
             <span class="meta-item">Sample: {{ assessment.sample_type|title }}</span>
         </div>
     </div>
 
     <section class="assessment-images" aria-labelledby="assessment-images-title">
-        <h3 id="assessment-images-title">Images</h3>
+        <h3 id="assessment-images-title">Strip photos</h3>
         <div class="assessment-image-grid">
             {% if has_source_image %}
             <figure class="assessment-image-card">
                 <img src="{{ url_for('main.assessment_image', assessment_id=assessment.assessment_id, kind='source') }}"
                      alt="Original photo of the test strip">
-                <figcaption>Original captured/uploaded photo</figcaption>
+                <figcaption>Original photo</figcaption>
             </figure>
             {% endif %}
             {% if has_analysis_overlay %}
@@ -37,7 +37,7 @@
 
     <div class="results-grid">
         <div class="results-card">
-            <h3>Test Quality</h3>
+            <h3>Photo and test check</h3>
             <div class="quality-items">
                 <div class="quality-item">
                     <span class="quality-label">Image Quality</span>
@@ -63,7 +63,7 @@
         </div>
 
         <div class="results-card">
-            <h3>Health Domains</h3>
+            <h3>Reading groups</h3>
             <div class="domain-items">
                 {% for domain, info in assessment.health_domains.items() %}
                 <div class="domain-item status-{{ info.status }}">
@@ -76,9 +76,9 @@
     </div>
 
     <div class="marker-results">
-        <h3>Marker Results</h3>
+        <h3>Strip readings</h3>
         <details class="color-match-help">
-            <summary>About color similarity</summary>
+            <summary>How color matching works</summary>
             <p>
                 {% if assessment.test_profile == 'SALIVA-PH4' %}
                 This score describes a combined match between the four pad colors and one chart column. It is not the
@@ -176,7 +176,7 @@
 
     {% if assessment.possible_associations %}
     <div class="associations-section">
-        <h3>Possible Associations</h3>
+        <h3>What these readings may be linked to</h3>
         {% for assoc in assessment.possible_associations %}
         <div class="association-card evidence-{{ assoc.evidence_level }}">
             <div class="association-header">
@@ -185,7 +185,7 @@
             </div>
             <p class="association-desc">{{ assoc.description }}</p>
             <div class="association-detail">
-                <span class="detail-label">Confirmation:</span>
+                <span class="detail-label">How to confirm:</span>
                 <span class="detail-value">{{ assoc.confirmation_method }}</span>
             </div>
         </div>
@@ -194,7 +194,7 @@
     {% endif %}
 
     <div class="recommendations-section">
-        <h3>Recommendations</h3>
+        <h3>What to do next</h3>
         <ul class="recommendation-list">
             {% for rec in assessment.recommendations %}
             <li>{{ rec }}</li>
@@ -203,7 +203,7 @@
     </div>
 
     <div class="limitations-section">
-        <h3>Limitations</h3>
+        <h3>What this result can’t tell you</h3>
         <ul class="limitation-list">
             {% for limit in assessment.limitations %}
             <li>{{ limit }}</li>
@@ -214,18 +214,24 @@
     <div class="results-summary status-{{ assessment.overall_status }}" role="note">
         <div class="summary-status">
             <div class="status-text">
-                <h2>{{ assessment.overall_status|title }}</h2>
+                <h2>
+                    {% if assessment.overall_status == 'normal' %}Within range
+                    {% elif assessment.overall_status == 'attention' %}Needs a closer look
+                    {% elif assessment.overall_status == 'followup_recommended' %}Talk with a provider
+                    {% elif assessment.overall_status == 'research' %}Research comparison
+                    {% else %}Could not read{% endif %}
+                </h2>
                 <p>
                     {% if assessment.overall_status == 'normal' %}
-                        All markers within normal range.
+                        The readings are within the saved reference range.
                     {% elif assessment.overall_status == 'attention' %}
-                        {{ assessment.flagged_markers|length }} marker(s) require review.
+                        {{ assessment.flagged_markers|length }} reading(s) may need a closer look.
                     {% elif assessment.overall_status == 'followup_recommended' %}
-                        Follow-up recommended.
+                        A health professional can help review this result.
                     {% elif assessment.overall_status == 'research' %}
                         Research-use color comparison only. This is not a clinical test or diagnosis.
                     {% else %}
-                        Invalid test result.
+                        We couldn’t read this strip. Try again with a clear, well-lit photo.
                     {% endif %}
                 </p>
                 {% if assessment.test_profile == 'SALIVA-PH4' %}
@@ -258,12 +264,12 @@
 
     <div class="actions-section">
         <a href="{{ url_for('main.history', patient_id=patient.patient_id) }}" class="btn-secondary">
-            View History
+            See past screenings
         </a>
         <a href="{{ url_for('main.new_screening') }}" class="btn-primary">
-            New Screening
+            Start another screening
         </a>
-        <button class="btn-secondary" onclick="window.print()">Print Report</button>
+        <button class="btn-secondary" onclick="window.print()">Print result</button>
     </div>
 </div>
 

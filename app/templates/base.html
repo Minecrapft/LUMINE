@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LUMINE - Health Screening</title>
+    <title>LUMINE - Screening guide</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/redesign.css') }}">
 </head>
@@ -14,23 +14,23 @@
             <a class="brand-home" href="{{ url_for('main.dashboard') }}" aria-label="LUMINE dashboard">
                 <img class="brand-logo" src="{{ url_for('static', filename='img/lumine-logo.png') }}" alt="LUMINE">
             </a>
-            <span class="brand-tagline">Health Screening</span>
+            <span class="brand-tagline">Your screening guide</span>
         </div>
         <div class="nav-links">
             <a href="{{ url_for('main.dashboard') }}" class="nav-link {% if request.endpoint == 'main.dashboard' %}active{% endif %}" {% if request.endpoint == 'main.dashboard' %}aria-current="page"{% endif %}>
-                Dashboard
+                Home
             </a>
             <a href="{{ url_for('main.new_screening') }}" class="nav-link {% if request.endpoint == 'main.new_screening' %}active{% endif %}" {% if request.endpoint == 'main.new_screening' %}aria-current="page"{% endif %}>
-                New Screening
+                New screening
             </a>
             <a href="{{ url_for('main.patients') }}" class="nav-link {% if request.endpoint == 'main.patients' %}active{% endif %}" {% if request.endpoint == 'main.patients' %}aria-current="page"{% endif %}>
-                Patients
+                People
             </a>
             <a href="{{ url_for('main.health_insights') }}" class="nav-link {% if request.endpoint == 'main.health_insights' %}active{% endif %}" {% if request.endpoint == 'main.health_insights' %}aria-current="page"{% endif %}>
                 Insights
             </a>
-            <a href="{{ url_for('main.system') }}" class="nav-link {% if request.endpoint in ['main.system', 'main.ml_studio'] %}active{% endif %}" {% if request.endpoint == 'main.system' %}aria-current="page"{% endif %}>
-                System
+            <a href="{{ url_for('main.system') }}" class="nav-link {% if request.endpoint in ['main.system', 'main.ml_studio'] %}active{% endif %}" {% if request.endpoint in ['main.system', 'main.ml_studio'] %}aria-current="page"{% endif %}>
+                Settings
             </a>
         </div>
     </nav>
@@ -43,7 +43,7 @@
         <div class="footer-content">
             <span>LUMINE v1.0.0</span>
             <span>|</span>
-            <span>Health Screening Platform</span>
+            <span>Screening guide</span>
             {% if config.DEMO_MODE %}
             <span class="demo-badge">DEMO</span>
             {% endif %}

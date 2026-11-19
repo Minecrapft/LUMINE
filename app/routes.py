@@ -265,6 +265,26 @@ def results(assessment_id):
     assessment = db.get_assessment(assessment_id)
     if not assessment:
         return render_template('error.html', error='Assessment not found'), 404
+
+    condition_engine = ConditionEngine(db)
+    associations = assessment.get('possible_associations') or []
+    sample_type = assessment.get('sample_type', 'urine')
+    filtered_associations = condition_engine.filter_associations(
+        associations,
+        sample_type=sample_type,
+    )
+    if len(filtered_associations) != len(associations):
+        assessment['possible_associations'] = filtered_associations
+        assessment['recommendations'] = condition_engine.get_recommendations(
+            filtered_associations
+        )
+        assessment['limitations'] = condition_engine.get_limitations(
+            filtered_associations
+        )
+        assessment['evidence_levels'] = condition_engine.get_evidence_summary(
+            filtered_associations
+        )
+
     patient = db.get_patient(assessment.get('patient_id'))
     show_followup_resources = assessment.get('overall_status') in {
         'attention', 'followup_recommended'
@@ -362,17 +382,35 @@ def history(patient_id):
                 similarity if similarity is not None and 0 <= similarity <= 100 else None
             )
 
-    history_markers = list(dict.fromkeys(
-        marker_result.get('marker')
-        for assessment in assessments
-        for marker_result in assessment.get('marker_results', [])
-        if marker_result.get('marker')
-    ))
+    trend_profiles_by_id = {}
+    for assessment in assessments:
+        profile_id = (assessment.get('test_profile') or '').strip() or '__unknown__'
+        if profile_id not in trend_profiles_by_id:
+            profile = (
+                db.get_test_profile(profile_id)
+                if profile_id != '__unknown__' else None
+            ) or {}
+            trend_profiles_by_id[profile_id] = {
+                'profile_id': profile_id,
+                'name': profile.get('name', profile_id if profile_id != '__unknown__' else 'Unknown test'),
+                'sample_type': profile.get(
+                    'sample_type',
+                    assessment.get('sample_type', '')
+                ),
+                'markers': [],
+            }
+
+        profile_markers = trend_profiles_by_id[profile_id]['markers']
+        for marker_result in assessment.get('marker_results', []):
+            marker = marker_result.get('marker')
+            if marker and marker not in profile_markers:
+                profile_markers.append(marker)
+
     return render_template(
         'history.html',
         patient=patient,
         assessments=assessments,
-        history_markers=history_markers,
+        trend_profiles=list(trend_profiles_by_id.values()),
         assessment_images=assessment_images
     )
 
@@ -1194,7 +1232,10 @@ def analyze_image():
                 item['method'] = orig.get('method', 'baseline')
                 item['pad_comparisons'] = orig.get('pad_comparisons')
 
-        associations = condition_engine.find_associations(interpreted)
+        associations = condition_engine.find_associations(
+            interpreted,
+            sample_type=sample_type,
+        )
         summary = marker_engine.generate_summary(marker_results)
         recommendations = condition_engine.get_recommendations(associations)
         limitations = condition_engine.get_limitations(associations)

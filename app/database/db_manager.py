@@ -130,6 +130,7 @@ class DatabaseManager:
                         domain TEXT NOT NULL,
                         associated_markers TEXT,
                         evidence_level TEXT NOT NULL,
+                        sample_type TEXT NOT NULL DEFAULT 'urine',
                         description TEXT,
                         limitations TEXT,
                         confirmation_method TEXT,
@@ -262,6 +263,25 @@ class DatabaseManager:
                     cursor.execute(
                         "ALTER TABLE training_jobs ADD COLUMN process_id INTEGER"
                     )
+
+                condition_columns = {
+                    row["name"] for row in cursor.execute(
+                        "PRAGMA table_info(conditions)"
+                    ).fetchall()
+                }
+                if "sample_type" not in condition_columns:
+                    cursor.execute(
+                        "ALTER TABLE conditions ADD COLUMN sample_type "
+                        "TEXT NOT NULL DEFAULT 'urine'"
+                    )
+
+                cursor.execute("""
+                    UPDATE conditions
+                    SET sample_type = 'saliva'
+                    WHERE condition_id IN ('SC001', 'SC002', 'SC003', 'SC004', 'SC005')
+                       OR lower(condition) LIKE '%saliva%'
+                       OR lower(condition) LIKE '%salivary%'
+                """)
                 
                 # Add SALIVA test profile
                 cursor.execute('SELECT COUNT(*) FROM test_profiles WHERE profile_id = ?', ('SALIVA-4K',))
@@ -387,23 +407,23 @@ class DatabaseManager:
                 cursor.execute('SELECT COUNT(*) FROM conditions WHERE condition_id = ?', ('SC001',))
                 if cursor.fetchone()[0] == 0:
                     conditions = [
-                        ('SC001', 'salivary_glucose_abnormal', 'metabolic', '["glucose"]', 'research',
+                        ('SC001', 'salivary_glucose_abnormal', 'metabolic', '["glucose"]', 'research', 'saliva',
                          'Glucose detected above normal saliva reference range', 
                          'May indicate metabolic changes - RESEARCH USE ONLY',
                          'Blood glucose test, HbA1c', 'Research: Salivary glucose as biomarker'),
-                        ('SC002', 'salivary_protein_abnormal', 'renal', '["protein"]', 'research',
+                        ('SC002', 'salivary_protein_abnormal', 'renal', '["protein"]', 'research', 'saliva',
                          'Protein detected in saliva above normal reference',
                          'May indicate oral or systemic changes - RESEARCH USE ONLY',
                          'Urine protein test, kidney function tests', 'Research: Salivary protein biomarkers'),
-                        ('SC003', 'salivary_ketosis', 'metabolic', '["ketones"]', 'research',
+                        ('SC003', 'salivary_ketosis', 'metabolic', '["ketones"]', 'research', 'saliva',
                          'Ketones detected in saliva',
                          'May indicate ketosis or metabolic changes - RESEARCH USE ONLY',
                          'Blood ketones, medical evaluation', 'Research: Salivary ketone detection'),
-                        ('SC004', 'salivary_inflammation', 'inflammation', '["leukocytes"]', 'research',
+                        ('SC004', 'salivary_inflammation', 'inflammation', '["leukocytes"]', 'research', 'saliva',
                          'Leukocytes detected in saliva',
                          'May indicate oral inflammation or infection - RESEARCH USE ONLY',
                          'Oral examination, medical evaluation', 'Research: Salivary leukocyte markers'),
-                        ('SC005', 'salivary_pH_abnormal', 'acid_base', '["pH"]', 'research',
+                        ('SC005', 'salivary_pH_abnormal', 'acid_base', '["pH"]', 'research', 'saliva',
                          'Salivary pH outside normal reference range (6.0-7.5)',
                          'May indicate acid-base changes - RESEARCH USE ONLY',
                          'Blood pH, medical evaluation', 'Research: Salivary pH as biomarker'),
@@ -413,9 +433,9 @@ class DatabaseManager:
                         cursor.execute('''
                             INSERT INTO conditions (
                                 condition_id, condition, domain, associated_markers,
-                                evidence_level, description, limitations,
+                                evidence_level, sample_type, description, limitations,
                                 confirmation_method, research_references, created_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ''', (*cond, datetime.now().isoformat()))
                 
                 conn.commit()

@@ -135,6 +135,57 @@ class TestPhase0Smoke:
         for marker in profile_urine_4p["configuration"]["markers"]:
             assert db.get_reference_colors("URS-4K-4P", marker)
 
+    def test_condition_associations_respect_sample_type_and_migrate_legacy_rows(self, tmp_path):
+        import sqlite3
+        from app.database.db_manager import DatabaseManager
+        from app.health.condition_engine import ConditionEngine
+
+        db_path = str(tmp_path / "legacy_conditions.db")
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("""
+                CREATE TABLE conditions (
+                    condition_id TEXT PRIMARY KEY,
+                    condition TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    associated_markers TEXT,
+                    evidence_level TEXT NOT NULL,
+                    description TEXT,
+                    limitations TEXT,
+                    confirmation_method TEXT,
+                    research_references TEXT,
+                    created_at TEXT
+                )
+            """)
+            conn.executemany(
+                """
+                INSERT INTO conditions (
+                    condition_id, condition, domain, associated_markers,
+                    evidence_level, description, limitations,
+                    confirmation_method, research_references, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    ("SC001", "salivary_glucose_abnormal", "metabolic", '["glucose"]',
+                     "research", "Salivary glucose finding", "", "", "", "2026-01-01"),
+                    ("UC001", "urine_glucose_abnormal", "metabolic", '["glucose"]',
+                     "clinical", "Urine glucose finding", "", "", "", "2026-01-01"),
+                ],
+            )
+
+        db = DatabaseManager(db_path)
+        engine = ConditionEngine(db)
+        flagged_glucose = [{"marker": "glucose", "status": "attention", "confidence": 0.9}]
+
+        urine_associations = engine.find_associations(flagged_glucose, sample_type="urine")
+        saliva_associations = engine.find_associations(flagged_glucose, sample_type="saliva")
+
+        assert [item["condition_id"] for item in urine_associations] == ["UC001"]
+        assert [item["condition_id"] for item in saliva_associations] == ["SC001"]
+        assert engine.filter_associations(
+            saliva_associations + urine_associations,
+            sample_type="urine",
+        ) == urine_associations
+
     def test_existing_urs4k_profile_is_migrated_to_four_pads(self, tmp_path):
         import json as _json
         from app.database.db_manager import DatabaseManager
@@ -242,11 +293,13 @@ class TestPhase0Smoke:
 
         dashboard = client.get("/")
         assert dashboard.status_code == 200
-        assert b"Health Screening Dashboard" in dashboard.data
+        assert b"Your health check, made simpler" in dashboard.data
         assert b"Good ," not in dashboard.data
-        assert b'href="/health_insights" class="view-all">View insights' in dashboard.data
-        assert b"Screenings in the last 7 days" in dashboard.data
-        assert b"Follow-up recommended" in dashboard.data
+        assert b'href="/health_insights" class="view-all">See activity' in dashboard.data
+        assert b"First time? Here" in dashboard.data
+        assert b"<details open>" in dashboard.data
+        assert b"Talk with a provider" in dashboard.data
+        assert b"A helpful check, not a diagnosis." in dashboard.data
         assert b"Health Domains" not in dashboard.data
 
         insights = client.get("/health_insights")
@@ -287,11 +340,11 @@ class TestPhase0Smoke:
         assert b'id="lightBrightness"' in camera_4k.data
         assert b"Strip light" in camera_4k.data
         assert b'id="focusSlider"' in camera_4k.data
-        assert b"Manual focus" in camera_4k.data
+        assert b"Focus" in camera_4k.data
         assert b"Image Capture" not in camera_4k.data
         assert b"quality-checks" not in camera_4k.data
         assert b"Lighting" not in camera_4k.data
-        assert b"Focus" not in camera_4k.data
+        assert b"Manual focus" not in camera_4k.data
         assert b"Position" not in camera_4k.data
         assert b'id="cameraPreview"' in camera_4k.data
 
@@ -738,6 +791,14 @@ class TestPhase0Smoke:
             "test_profile": "URS-4K-4P",
             "overall_status": "normal",
             "image_path": str(source_image),
+            "possible_associations": [{
+                "condition_id": "SC001",
+                "condition": "salivary_glucose_abnormal",
+                "evidence_level": "research",
+                "confirmation_method": "Blood glucose test, HbA1c",
+            }],
+            "recommendations": ["Research associations have been identified."],
+            "limitations": ["Some associations are based on research evidence only."],
             "marker_results": [
                 {
                     "marker": "glucose", "result": "negative",
@@ -790,7 +851,11 @@ class TestPhase0Smoke:
 
         results_page = client.get("/results/" + first_assessment_id)
         assert results_page.status_code == 200
-        assert b"Original captured/uploaded photo" in results_page.data
+        assert b"Within range" in results_page.data
+        assert b"The readings are within the saved reference range." in results_page.data
+        assert b"salivary_glucose_abnormal" not in results_page.data
+        assert b"Research associations have been identified." not in results_page.data
+        assert b"Original photo" in results_page.data
         assert b"detected pad regions and predicted readings" in results_page.data
         assert b"72%" in results_page.data
         assert b">Image<" in results_page.data
@@ -802,8 +867,8 @@ class TestPhase0Smoke:
         assert b"rgb(142, 197, 199)" in results_page.data
         assert b"Find a general medicine provider in Surigao City" not in results_page.data
         assert b"data:image/svg+xml;base64," not in results_page.data
-        assert results_page.data.index(b"RESEARCH USE ONLY") > results_page.data.index(b"Limitations")
-        assert results_page.data.index(b"RESEARCH USE ONLY") < results_page.data.index(b"View History")
+        assert results_page.data.index(b"RESEARCH USE ONLY") > results_page.data.index(b"What this result")
+        assert results_page.data.index(b"RESEARCH USE ONLY") < results_page.data.index(b"See past screenings")
         followup_page = client.get("/results/" + followup_assessment_id)
         assert followup_page.status_code == 200
         assert b"Find a general medicine provider in Surigao City" in followup_page.data
@@ -825,6 +890,8 @@ class TestPhase0Smoke:
         ).data == b"overlay image"
         history_page = client.get("/history/" + patient_id)
         assert history_page.status_code == 200
+        assert b'id="assessments-data"' in history_page.data
+        assert b'data-assessments=' in history_page.data
         assert b"Delete Screening" in history_page.data
         assert b'class="history-details"' in history_page.data
         assert b"Readings" in history_page.data
@@ -865,6 +932,54 @@ class TestPhase0Smoke:
                 (first_assessment_id,)
             ).fetchone()[0] == 0
         assert client.delete("/api/patients/" + patient_id).status_code == 404
+
+    def test_history_trends_separate_different_test_profiles(self, tmp_path):
+        from flask import Flask
+        from app.database.db_manager import DatabaseManager
+        from app.routes import main_bp
+
+        app = Flask(
+            "lumine_history_trend_profiles_test",
+            template_folder=os.path.join(ROOT, "app", "templates")
+        )
+        app.config["UPLOAD_DIR"] = str(tmp_path / "uploads")
+        app.db = DatabaseManager(str(tmp_path / "history_trends.db"))
+        app.camera = None
+        app.register_blueprint(main_bp)
+        patient_id = app.db.create_patient({"first_name": "Trend", "last_name": "Patient"})
+        app.db.create_assessment({
+            "patient_id": patient_id,
+            "sample_type": "urine",
+            "test_profile": "URS-10T",
+            "overall_status": "normal",
+            "marker_results": [
+                {"marker": "nitrite", "result": "negative", "status": "normal"},
+                {"marker": "leukocytes", "result": "negative", "status": "normal"},
+            ],
+        })
+        app.db.create_assessment({
+            "patient_id": patient_id,
+            "sample_type": "urine",
+            "test_profile": "URS-4K",
+            "overall_status": "normal",
+            "marker_results": [
+                {"marker": "glucose", "result": "negative", "status": "normal"},
+                {"marker": "pH", "result": "7.0", "status": "normal"},
+                {"marker": "protein", "result": "negative", "status": "normal"},
+                {"marker": "ketones", "result": "negative", "status": "normal"},
+            ],
+        })
+
+        response = app.test_client().get("/history/" + patient_id)
+
+        assert response.status_code == 200
+        assert b'<option value="URS-4K" selected>' in response.data
+        assert b'id="chart-urs-4k-glucose"' in response.data
+        assert b'id="chart-urs-4k-ph"' in response.data
+        assert b'id="chart-urs-4k-protein"' in response.data
+        assert b'id="chart-urs-4k-ketones"' in response.data
+        assert b'id="chart-urs-4k-nitrite"' not in response.data
+        assert b'id="chart-urs-10t-nitrite"' in response.data
 
     def test_patient_delete_database_failure_retains_records_and_images(self, tmp_path):
         from flask import Flask

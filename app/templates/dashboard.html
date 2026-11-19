@@ -2,61 +2,92 @@
 
 {% block content %}
 <div class="dashboard-container">
-    <div class="dashboard-header">
-        <h1 class="page-title">Health Screening Dashboard</h1>
-        <p class="page-subtitle">Screenings and follow-up at a glance.</p>
-    </div>
-
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-content">
-                <div class="stat-number">{{ stats.total_patients }}</div>
-                <div class="stat-label">Patients</div>
+    <section class="dashboard-welcome" aria-labelledby="welcome-title">
+        <div class="dashboard-welcome-copy">
+            <h1 class="page-title" id="welcome-title">Your health check, made simpler</h1>
+            <p class="page-subtitle">We’ll guide you from setup to results. No medical background needed.</p>
+            <a href="{{ url_for('main.new_screening') }}" class="btn-primary dashboard-start">
+                Start a screening
+            </a>
+        </div>
+        <div class="dashboard-welcome-art" aria-hidden="true">
+            <div class="field-guide-orbit"></div>
+            <div class="field-guide-strip">
+                <span></span><span></span><span></span><span></span>
             </div>
+            <span class="field-guide-caption">One clear photo. Step by step.</span>
         </div>
-        <div class="stat-card">
-            <div class="stat-content">
-                <div class="stat-number">{{ stats.total_assessments }}</div>
-                <div class="stat-label">Screenings</div>
-            </div>
-        </div>
-        <div class="stat-card warning">
-            <div class="stat-content">
-                <div class="stat-number">{{ stats.followup_needed }}</div>
-                <div class="stat-label">Follow-up Needed</div>
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-content">
-                <div class="stat-number">{{ stats.recent_screening_count }}</div>
-                <div class="stat-label">Screenings in the last 7 days</div>
-            </div>
-        </div>
-    </div>
-
-    <section class="dashboard-outcomes" aria-labelledby="outcomes-title">
-        <div class="dashboard-section-heading">
-            <h2 class="section-title" id="outcomes-title">Screening outcomes</h2>
-            <p>Results across all recorded screenings</p>
-        </div>
-        {% if outcome_summary %}
-            <ul class="outcome-grid">
-                {% for outcome in outcome_summary %}
-                <li class="outcome-item outcome-{{ outcome.status }}">
-                    <span class="outcome-label">{{ outcome.label }}</span>
-                    <strong class="outcome-count">{{ outcome.count }}</strong>
-                </li>
-                {% endfor %}
-            </ul>
-        {% else %}
-            <p class="outcome-empty">Screening results will appear here after the first assessment.</p>
-        {% endif %}
     </section>
+
+    <section class="quick-guide" aria-labelledby="quick-guide-title">
+        <div class="dashboard-section-heading">
+            <h2 class="section-title" id="quick-guide-title">First time? Here’s the simple version.</h2>
+            <p>Open each step for a helpful tip.</p>
+        </div>
+        <ol class="guide-steps">
+            <li class="guide-step">
+                <details open>
+                    <summary>
+                        <span class="guide-step-number">1</span>
+                        <span class="guide-step-title">Get the strip ready</span>
+                        <span class="guide-step-toggle" aria-hidden="true"></span>
+                    </summary>
+                    <div class="guide-step-content">
+                        <p>Follow the timing on the test package. Place the strip on a clean, flat surface.</p>
+                    </div>
+                </details>
+            </li>
+            <li class="guide-step">
+                <details>
+                    <summary>
+                        <span class="guide-step-number">2</span>
+                        <span class="guide-step-title">Keep the whole strip in view</span>
+                        <span class="guide-step-toggle" aria-hidden="true"></span>
+                    </summary>
+                    <div class="guide-step-content">
+                        <p>Fit both ends and every color pad inside the camera guide. Use steady light and avoid shadows or glare.</p>
+                    </div>
+                </details>
+            </li>
+            <li class="guide-step">
+                <details>
+                    <summary>
+                        <span class="guide-step-number">3</span>
+                        <span class="guide-step-title">Review what LUMINE noticed</span>
+                        <span class="guide-step-toggle" aria-hidden="true"></span>
+                    </summary>
+                    <div class="guide-step-content">
+                        <p>LUMINE compares colors with saved references. It is a screening aid, not a diagnosis. Ask a health professional about results that need review.</p>
+                    </div>
+                </details>
+            </li>
+            <li class="guide-step">
+                <details>
+                    <summary>
+                        <span class="guide-step-number">4</span>
+                        <span class="guide-step-title">Choose what to do next</span>
+                        <span class="guide-step-toggle" aria-hidden="true"></span>
+                    </summary>
+                    <div class="guide-step-content">
+                        <p>If a result recommends follow-up, talk with a qualified health professional. If LUMINE could not read the photo, follow the prompts to try again.</p>
+                    </div>
+                </details>
+            </li>
+        </ol>
+    </section>
+
+    <aside class="screening-safety-note" role="note">
+        <span class="safety-note-mark" aria-hidden="true">i</span>
+        <p><strong>A helpful check, not a diagnosis.</strong> LUMINE cannot replace a lab test or advice from a qualified health professional.</p>
+    </aside>
 
     <section class="recent-assessments" aria-labelledby="recent-assessments-title">
         <div class="section-header">
-            <h2 class="section-title" id="recent-assessments-title">Recent screenings</h2>
-            <a href="{{ url_for('main.health_insights') }}" class="view-all">View insights</a>
+            <div>
+                <h2 class="section-title" id="recent-assessments-title">Recent screenings</h2>
+                <p class="section-description">Open a result to see the details.</p>
+            </div>
+            <a href="{{ url_for('main.health_insights') }}" class="view-all">See activity</a>
         </div>
         <div class="assessment-list">
             {% if recent %}
@@ -68,21 +99,77 @@
                     </div>
                     <div class="assessment-status">
                         <span class="status-badge status-{{ assessment.overall_status }}">
-                            {{ assessment.overall_status|title }}
+                            {% if assessment.overall_status == 'normal' %}Within range
+                            {% elif assessment.overall_status == 'attention' %}Needs a closer look
+                            {% elif assessment.overall_status == 'followup_recommended' %}Talk with a provider
+                            {% elif assessment.overall_status == 'research' %}Research comparison
+                            {% elif assessment.overall_status == 'invalid' %}Could not read
+                            {% else %}{{ assessment.overall_status|title|replace('_', ' ') }}{% endif %}
                         </span>
                     </div>
                     <a href="{{ url_for('main.results', assessment_id=assessment.assessment_id) }}" class="view-btn">
-                        View
+                        Open
                     </a>
                 </div>
                 {% endfor %}
             {% else %}
                 <div class="empty-state">
-                    <p>No assessments yet. Start your first screening!</p>
-                    <a href="{{ url_for('main.new_screening') }}" class="btn-primary">New Screening</a>
+                    <p>No screenings yet. Your first guided check can start here.</p>
+                    <a href="{{ url_for('main.new_screening') }}" class="btn-primary">Start a screening</a>
                 </div>
             {% endif %}
         </div>
+    </section>
+
+    <section class="dashboard-activity" aria-labelledby="activity-title">
+        <div class="dashboard-section-heading">
+            <h2 class="section-title" id="activity-title">Your activity at a glance</h2>
+            <p>Counts from the screenings saved here.</p>
+        </div>
+        <div class="dashboard-counts">
+            <div class="dashboard-count">
+                <strong>{{ stats.total_patients }}</strong>
+                <span>People</span>
+            </div>
+            <div class="dashboard-count">
+                <strong>{{ stats.total_assessments }}</strong>
+                <span>Screenings saved</span>
+            </div>
+            <div class="dashboard-count">
+                <strong>{{ stats.followup_needed }}</strong>
+                <span>Need a closer look</span>
+            </div>
+            <div class="dashboard-count">
+                <strong>{{ stats.recent_screening_count }}</strong>
+                <span>This week</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="dashboard-outcomes" aria-labelledby="outcomes-title">
+        <div class="dashboard-section-heading">
+            <h2 class="section-title" id="outcomes-title">Results at a glance</h2>
+            <p>A simple count of saved results.</p>
+        </div>
+        {% if outcome_summary %}
+            <ul class="outcome-grid">
+                {% for outcome in outcome_summary %}
+                <li class="outcome-item outcome-{{ outcome.status }}">
+                    <span class="outcome-label">
+                        {% if outcome.status == 'normal' %}Within range
+                        {% elif outcome.status == 'attention' %}Needs a closer look
+                        {% elif outcome.status == 'followup_recommended' %}Talk with a provider
+                        {% elif outcome.status == 'research' %}Research comparison
+                        {% elif outcome.status == 'invalid' %}Could not read
+                        {% else %}{{ outcome.label }}{% endif %}
+                    </span>
+                    <strong class="outcome-count">{{ outcome.count }}</strong>
+                </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="outcome-empty">Saved results will appear here after your first screening.</p>
+        {% endif %}
     </section>
 </div>
 {% endblock %}

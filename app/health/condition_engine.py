@@ -54,7 +54,38 @@ class ConditionEngine:
         """Get conditions by domain."""
         return [c for c in self.condition_cache.values() if c.get('domain') == domain]
     
-    def find_associations(self, marker_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _matches_sample_type(condition: Dict[str, Any], sample_type: str) -> bool:
+        condition_sample_type = condition.get('sample_type', 'urine')
+        return condition_sample_type.lower() == sample_type.lower()
+
+    def filter_associations(
+        self,
+        associations: List[Dict[str, Any]],
+        sample_type: str
+    ) -> List[Dict[str, Any]]:
+        """Keep only associations matching the assessment's sample type."""
+        filtered = []
+        for association in associations:
+            condition = self.get_condition(association.get('condition_id'))
+            if condition:
+                if self._matches_sample_type(condition, sample_type):
+                    filtered.append(association)
+                continue
+
+            condition_name = str(association.get('condition', '')).lower()
+            if sample_type.lower() != 'saliva' and (
+                'saliva' in condition_name or 'salivary' in condition_name
+            ):
+                continue
+            filtered.append(association)
+        return filtered
+
+    def find_associations(
+        self,
+        marker_results: List[Dict[str, Any]],
+        sample_type: str
+    ) -> List[Dict[str, Any]]:
         """Find health condition associations from marker results."""
         associations = []
         
@@ -67,7 +98,11 @@ class ConditionEngine:
         # Find conditions matching flagged markers
         for marker_result in flagged:
             marker = marker_result.get('marker', '')
-            conditions = self.get_conditions_by_marker(marker)
+            conditions = [
+                condition
+                for condition in self.get_conditions_by_marker(marker)
+                if self._matches_sample_type(condition, sample_type)
+            ]
             
             for condition in conditions:
                 # Check if all required markers are present

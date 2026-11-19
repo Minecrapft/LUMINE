@@ -4,8 +4,8 @@
 <div class="camera-container">
     <div class="camera-header">
         <div class="camera-status">
-            <span class="status-label">Status:</span>
-            <span class="status-value" id="cameraStatus">Initializing...</span>
+            <span class="status-label">Camera:</span>
+            <span class="status-value" id="cameraStatus">Getting the camera ready…</span>
         </div>
     </div>
 
@@ -22,18 +22,18 @@
                 <div class="camera-overlay">
                     <div class="strip-guide">
                         <div class="guide-border">
-                            <span class="guide-text">PLACE STRIP HERE</span>
+                            <span class="guide-text">Place strip here</span>
                         </div>
                     </div>
                 </div>
-                <img id="cameraFrame" src="" alt="Camera preview">
+                <img id="cameraFrame" src="" alt="Live camera preview of the test strip">
             </div>
         </div>
 
         <div class="camera-controls">
             <div class="capture-controls">
                 <button class="btn-primary" id="captureBtn" disabled>
-                    Capture and analyze
+                    Take and check photo
                 </button>
                 <div class="timer" id="timerDisplay">
                     <span class="timer-value" id="timerValue">0s</span>
@@ -51,13 +51,13 @@
                     Set the light level for the preview and capture. 0% turns it off.
                 </p>
                 <p class="illumination-status" id="illuminationStatus" role="status" aria-live="polite">
-                    Checking GPIO 18…
+                    Checking strip light…
                 </p>
             </section>
 
             <div class="focus-control">
                 <div class="focus-heading">
-                    <label for="focusSlider">Manual focus</label>
+                    <label for="focusSlider">Focus</label>
                     <output id="focusValue" for="focusSlider">128</output>
                 </div>
                 <input id="focusSlider" type="range" min="0" max="255" value="128"
@@ -66,28 +66,28 @@
                     <span>Near</span>
                     <span>Far</span>
                 </div>
-                <p class="focus-help" id="focusHelp">Moving the slider turns autofocus off.</p>
+                <p class="focus-help" id="focusHelp">If the strip looks blurry, adjust focus. This turns automatic focus off.</p>
                 <p class="focus-status" id="focusStatus" role="status" aria-live="polite">
-                    Autofocus is on
+                    Automatic focus is on
                 </p>
             </div>
 
             <div class="upload-controls">
-                <label for="imageUpload">Or choose a photo to analyze</label>
+                <label for="imageUpload">Or use a photo from this device</label>
                 <input type="file" id="imageUpload" accept="image/jpeg,image/png,image/webp,image/bmp">
-                <button class="btn-secondary" id="uploadBtn" disabled>Analyze Photo</button>
+                <button class="btn-secondary" id="uploadBtn" disabled>Check photo</button>
             </div>
 
             <div class="progress-bar" id="progressBar" style="display:none;">
                 <div class="progress-fill" id="progressFill" style="width:0%"></div>
-                <span class="progress-text" id="progressText">Analyzing...</span>
+                <span class="progress-text" id="progressText">Checking photo…</span>
             </div>
         </div>
     </div>
 
     <div class="camera-info">
         <div class="info-item">
-            <span class="info-label">Patient:</span>
+            <span class="info-label">Person:</span>
             <span class="info-value">{{ patient.first_name }} {{ patient.last_name }}</span>
         </div>
         <div class="info-item">
@@ -99,7 +99,7 @@
             <span class="info-value">{{ test_profile_name }}</span>
         </div>
         <div class="info-item">
-            <span class="info-label">Parameters:</span>
+            <span class="info-label">Readings:</span>
             <span class="info-value">
                 {% for marker in test_markers %}
                     {% if marker == 'pH' %}pH{% else %}{{ marker|replace('_', ' ')|title }}{% endif %}{% if not loop.last %}, {% endif %}
@@ -138,13 +138,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const testProfile = {{ test_profile|tojson }};
 
     frame.addEventListener('load', function() {
-        statusEl.textContent = 'Ready';
+        statusEl.textContent = 'Ready to take a photo';
         statusEl.style.color = '#16a34a';
         captureBtn.disabled = isCapturing;
     });
 
     frame.addEventListener('error', function() {
-        statusEl.textContent = 'Camera unavailable';
+        statusEl.textContent = 'Camera not available';
         statusEl.style.color = '#dc2626';
         captureBtn.disabled = true;
     });
@@ -163,10 +163,10 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(async response => {
                 const data = await response.json();
                 if (!response.ok || !data.success) {
-                    throw new Error(data.error || 'Manual focus could not be set.');
+                    throw new Error(data.error || 'Could not adjust focus.');
                 }
                 focusStatus.textContent =
-                    `Manual focus set to ${Math.round(data.focus_value)}.`;
+                    `Focus set to ${Math.round(data.focus_value)}.`;
             })
             .catch(error => {
                 focusStatus.textContent = error.message;
@@ -335,7 +335,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function startPreview() {
         if (frame.src.endsWith('/api/camera/stream')) return;
-        statusEl.textContent = 'Connecting...';
+        statusEl.textContent = 'Connecting to the camera…';
         statusEl.style.color = '';
         frame.src = '/api/camera/stream';
     }
